@@ -1,0 +1,3 @@
+# Local single-user app with CLI agents as Providers
+
+Dat Distiller runs on the user's own machine as a single-user web app, with no accounts or auth. Its Providers are the user's locally installed CLI agents (Codex, Claude Code, OpenCode), run as headless subprocesses and used only as text-in, text-out generators with structured output, plus OpenRouter over HTTP. Using the agents the user is already logged into is the point of the product, and that only works locally. Hosting it for multiple users would mean replacing Providers, key storage, and data storage, so the app is deliberately not built with multi-tenancy in mind.
