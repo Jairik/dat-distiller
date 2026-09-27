@@ -8,6 +8,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2",
+    "pandas>=2.2",
+    "pyarrow>=16",
 ]
 
 [project.optional-dependencies]
