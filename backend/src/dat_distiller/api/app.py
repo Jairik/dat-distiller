@@ -12,6 +12,7 @@ from ..store import DatasetStore
 from ..store.paths import AppPaths
 from .frontend import mount_frontend
 from .projects import router as projects_router
+from .uploads import router as uploads_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -36,5 +37,6 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.state.store = store or DatasetStore(AppPaths.from_env())
     app.include_router(api_router)
     app.include_router(projects_router, prefix="/api")
+    app.include_router(uploads_router, prefix="/api")
     mount_frontend(app)
     return app

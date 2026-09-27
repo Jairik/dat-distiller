@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2",
     "pandas>=2.2",
     "pyarrow>=16",
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
