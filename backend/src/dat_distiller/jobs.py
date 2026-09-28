@@ -107,6 +107,15 @@ class JobContext:
         """Set when the user cancels — cooperative runners check and stop."""
         return self._cancel.is_set()
 
+    @property
+    def params(self) -> dict[str, Any]:
+        """The parameters this job was started with."""
+        return self._manager.get(self.job_id).params
+
+    @property
+    def project_id(self) -> str | None:
+        return self._manager.get(self.job_id).project_id
+
     def save_checkpoint(self, data: dict[str, Any]) -> None:
         """Persist partial results so a resumed run can skip finished work."""
         self._manager._set_checkpoint(self.job_id, data)

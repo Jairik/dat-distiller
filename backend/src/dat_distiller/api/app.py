@@ -46,6 +46,9 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.state.checks = CheckStore(app.state.store.db)
     app.state.jobs = JobManager(app.state.store.db)
     app.state.settings = SettingsStore()
+    from ..generate.run import register_generation_job
+
+    register_generation_job(app.state.jobs, app)
     app.include_router(api_router)
     app.include_router(projects_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")
