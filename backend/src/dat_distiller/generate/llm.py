@@ -40,7 +40,7 @@ class LLMSynthesisResult:
 def rows_schema(profile: Profile) -> dict[str, Any]:
     props: dict[str, Any] = {}
     for column in profile.columns:
-        props[column.name] = _column_schema(column.kind)
+        props[column.name] = _column_schema(column)
     return {
         "type": "object",
         "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": props, "required": list(props)}}},
@@ -48,17 +48,27 @@ def rows_schema(profile: Profile) -> dict[str, Any]:
     }
 
 
-def _column_schema(kind: str) -> dict[str, Any]:
-    # Keep the JSON Schema permissive: coercion + validation happen against
-    # the Profile (ranges/categories), where errors can be reported back.
-    return {
+def _column_schema(column: Any) -> dict[str, Any]:
+    # Keep the JSON Schema permissive (coercion accepts plausible imposters);
+    # carry declared constraints as hints that providers honor.
+    schemas = {
         "number": {"type": ["number", "string", "null"]},
         "integer": {"type": ["integer", "string", "number", "null"]},
         "categorical": {"type": ["string", "number", "null"]},
         "bool": {"type": ["boolean", "string", "integer", "null"]},
         "datetime": {"type": ["string", "null"]},
         "text": {"type": ["string", "null"]},
-    }[kind]
+    }
+    schema = dict(schemas[column.kind])
+    if column.kind in ("number", "integer"):
+        lo = float(column.min) if column.min is not None else None
+        hi = float(column.max) if column.max is not None else None
+        hint = (lo + hi) / 2 if lo is not None and hi is not None else (lo if lo is not None else hi if hi is not None else None)
+        if hint is not None:
+            schema["examples"] = [int(hint) if column.kind == "integer" else hint]
+    if column.kind == "categorical" and column.categories:
+        schema["examples"] = list(column.categories)
+    return schema
 
 
 def build_prompt(description: str, profile: Profile, count: int, sample_rows: list[dict] | None) -> str:
