@@ -13,6 +13,7 @@ from ..jobs import JobManager
 from ..settings import SettingsStore
 from ..store import DatasetStore
 from ..store.paths import AppPaths
+from .cards import router as cards_router
 from .checks import router as checks_router
 from .fidelity import router as fidelity_router
 from .evaluate import router as evaluate_router
@@ -78,6 +79,7 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.include_router(pii_router, prefix="/api")
     app.include_router(train_router, prefix="/api")
     app.include_router(evaluate_router, prefix="/api")
+    app.include_router(cards_router, prefix="/api")
     app.include_router(review_router, prefix="/api")
     mount_frontend(app)
     return app
