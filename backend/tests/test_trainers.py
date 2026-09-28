@@ -134,10 +134,16 @@ def test_an_unknown_model_is_refused_with_the_available_names() -> None:
 
 def test_resolving_models_defaults_to_every_supported_installed_model() -> None:
     chosen = resolve_models(None, "classification")
+    # Derived from the registry rather than written out, so the expectation does
+    # not depend on which optional extras happen to be installed: `models: None`
+    # means "everything this install can run", and that set moves.
     assert [spec.name for spec in chosen] == [
-        name for name in MODEL_SPECS if name != "linear_regression"
+        name
+        for name, spec in MODEL_SPECS.items()
+        if name != "linear_regression" and trainers.is_available(spec)
     ]
     assert all(spec.supports("classification") for spec in chosen)
+    assert all(trainers.is_available(spec) for spec in chosen)
 
 
 def test_a_model_that_cannot_do_the_task_type_is_refused_readably() -> None:

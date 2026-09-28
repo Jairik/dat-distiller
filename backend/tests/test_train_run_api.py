@@ -39,6 +39,20 @@ TINY_NEURAL: dict[str, dict[str, Any]] = {
 }
 
 
+def installed_neural_hyperparameters() -> dict[str, dict[str, Any]]:
+    """The neural pins for the frameworks this install actually has.
+
+    The backend rightly refuses hyperparameters for a Model it is not training,
+    so a request that pins `tensorflow_mlp` on a machine without TensorFlow is a
+    422 rather than a silently ignored key.
+    """
+    return {
+        name: params
+        for name, params in TINY_NEURAL.items()
+        if trainers.is_available(trainers.MODEL_SPECS[name])
+    }
+
+
 # -- data --------------------------------------------------------------------
 
 
@@ -253,9 +267,18 @@ def test_a_training_run_fits_every_model_and_ranks_them(
     # A default selection is every Model this install can run, which on a machine
     # with the heavy extras also means the neural nets — pinned to a token number
     # of epochs so the test does not pay for a real search.
-    run = train(client, version_id=version, target="is_spam", hyperparameters=TINY_NEURAL)
+    run = train(
+        client,
+        version_id=version,
+        target="is_spam",
+        hyperparameters=installed_neural_hyperparameters(),
+    )
     board = run["leaderboard"]
-    expected = set(trainers.MODEL_SPECS) - {"linear_regression"}
+    expected = {
+        name
+        for name, spec in trainers.MODEL_SPECS.items()
+        if name != "linear_regression" and trainers.is_available(spec)
+    }
     assert set(entry["model"] for entry in board) == expected
     assert all(entry["status"] == "ok" for entry in board), [
         (entry["model"], entry.get("error")) for entry in board
