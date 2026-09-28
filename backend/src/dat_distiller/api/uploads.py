@@ -15,6 +15,7 @@ from ..ingest import (
     to_csv_bytes,
     to_parquet_bytes,
 )
+from ..pii import register_pii_checks, scan, summarize_findings
 from ..store.provenance import PROVENANCE_COLUMN
 from ..store.store import ParentNotFoundError
 from .projects import _require_project, _require_version
@@ -47,7 +48,15 @@ async def upload_dataset_version(
         version = store.create_version(project_id, df, parent_id=parent_id)
     except ParentNotFoundError as exc:
         raise HTTPException(404, "parent dataset version not found") from exc
-    return version.to_dict()
+    # Scan before the user has done anything with the Version, so the Checks are
+    # already waiting at the end of the step. Findings only raise Checks; the
+    # user still chooses warn / mask / drop (see `api/pii.py`).
+    findings = scan(df)
+    checks = register_pii_checks(request.app.state.checks, version.id, findings)
+    payload = version.to_dict()
+    payload["pii"] = summarize_findings(findings)
+    payload["pii_checks"] = [check.id for check in checks]
+    return payload
 
 
 @router.get("/dataset-versions/{version_id}/download")
@@ -79,4 +88,4 @@ def download_dataset_version(
     )
 
 
-__all__ = ["router", "SUPPORTED_SUFFIXES"]
+__all__ = ["SUPPORTED_SUFFIXES", "router"]

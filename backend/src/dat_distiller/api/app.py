@@ -19,6 +19,7 @@ from .generate import router as generate_router
 from .jev import router as jev_router
 from .jobs import router as jobs_router
 from .label import router as label_router
+from .pii import router as pii_router
 from .providers import router as providers_router
 from .settings import router as settings_router
 from .projects import router as projects_router
@@ -64,5 +65,6 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.include_router(generate_router, prefix="/api")
     app.include_router(label_router, prefix="/api")
     app.include_router(jev_router, prefix="/api")
+    app.include_router(pii_router, prefix="/api")
     mount_frontend(app)
     return app

@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from ..checks import CheckStore
 from ..jobs import JobContext
+from ..pii import register_pii_checks, scan, summarize_findings
 from ..profile import ColumnSpec, Profile, build_profile, profile_from_specs
 from ..providers import resolve_provider
 from ..store import DatasetStore
@@ -242,6 +243,11 @@ def run_generation(
         },
     )
     raised = raise_fidelity_checks(checks, version.id, fidelity)
+    # A Provider can invent a realistic-looking email or phone number. Scan the
+    # generated rows before the Version is handed to the user, so the Check is
+    # waiting at the end of the step rather than discovered later.
+    findings = scan(rows)
+    pii_checks = register_pii_checks(checks, version.id, findings)
     progress(request.count)
     return {
         "version_id": version.id,
@@ -250,7 +256,8 @@ def run_generation(
         "provider_calls": calls["n"],
         "dropped_rows": mode_result.dropped,
         "fidelity_warnings": fidelity["warnings"],
-        "checks_raised": raised,
+        "checks_raised": raised + [check.id for check in pii_checks],
+        "pii": summarize_findings(findings),
     }
 
 
