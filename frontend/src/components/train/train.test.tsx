@@ -486,10 +486,10 @@ describe('Train step — running and the leaderboard', () => {
     })
 
     const board = await screen.findByTestId('leaderboard')
-    const rows = within(board).getAllByRole('row').slice(1) // drop the header
+    const rows = within(board).getAllByTestId(/^board-row-/)
     expect(rows).toHaveLength(3)
     expect(within(board).getByText('Random Forest')).toBeInTheDocument()
-    expect(within(board).getByText('0.9000')).toBeInTheDocument()
+    expect(within(board).getByText(/f1_macro 0\.9000/)).toBeInTheDocument()
   })
 
   it('explains a Model that could not be ranked rather than hiding it', async () => {
@@ -506,8 +506,11 @@ describe('Train step — running and the leaderboard', () => {
     await emitJobEvent('j1', 'completed', { status: 'completed', progress: {}, result: RUN, error: null })
 
     const board = await screen.findByTestId('leaderboard')
+    // the Model is still listed, and the reason names the metric that was missing
     expect(within(board).getByText('SVM')).toBeInTheDocument()
-    expect(within(board).getByText(/does not output class probabilities/)).toBeInTheDocument()
+    const reason = within(board).getByTestId('unranked-svm')
+    expect(reason).toHaveTextContent('Not ranked')
+    expect(reason).toHaveTextContent('f1_macro')
   })
 
   it('surfaces the run warnings', async () => {
@@ -522,8 +525,10 @@ describe('Train step — running and the leaderboard', () => {
     await user.click(within(plan).getByRole('button', { name: 'Train' }))
     await screen.findByText('Training Run')
     await emitJobEvent('j1', 'completed', { status: 'completed', progress: {}, result: RUN, error: null })
-    const board = await screen.findByTestId('leaderboard')
-    expect(within(board).getByText('the Target is 8% of the rows')).toBeInTheDocument()
+    // warnings describe the run, not the board, so they sit beside it
+    await screen.findByTestId('leaderboard')
+    const warnings = await screen.findByTestId('run-warnings')
+    expect(within(warnings).getByText('the Target is 8% of the rows')).toBeInTheDocument()
   })
 
   it('offers the Model Card once the run finishes', async () => {
@@ -571,5 +576,93 @@ describe('modelsForTaskType', () => {
   it('names the extra and the command to install it', () => {
     expect(unavailableReason(MODELS[3])).toContain("uv sync --extra torch")
     expect(unavailableReason(MODELS[0])).toBe('')
+  })
+})
+
+describe('Leaderboard — a Model that cannot be ranked on the chosen metric', () => {
+  /** A run whose primary metric is ROC-AUC, with one Model that has no probabilities. */
+  const ROC_RUN = {
+    ...RUN,
+    primary_metric: 'roc_auc',
+    primary_metric_higher_is_better: true,
+    leaderboard: [
+      {
+        rank: 1,
+        model: 'logistic_regression',
+        label: 'Logistic Regression',
+        library: 'sklearn',
+        task_type: 'classification',
+        status: 'ok',
+        classes: [],
+        hyperparameters: {},
+        fit_seconds: 0.1,
+        metrics: { roc_auc: { value: 0.93, reason: null }, f1_macro: { value: 0.8, reason: null } },
+        primary_metric: 'roc_auc',
+        primary: { value: 0.93, reason: null },
+      },
+      {
+        rank: null,
+        model: 'svm',
+        label: 'SVM',
+        library: 'sklearn',
+        task_type: 'classification',
+        status: 'ok',
+        classes: [],
+        hyperparameters: {},
+        fit_seconds: 0.2,
+        metrics: { roc_auc: { value: null, reason: 'this Model does not output class probabilities' } },
+        primary_metric: 'roc_auc',
+        primary: { value: null, reason: 'this Model does not output class probabilities' },
+      },
+    ],
+  }
+
+  async function showBoard(user: ReturnType<typeof userEvent.setup>) {
+    mockFetch({
+      ...baseHandlers,
+      'POST /train/plan': () => PLAN,
+      'POST /train/run': () => ({ id: 'j1' }),
+      'GET /train/runs/j1': () => ({ ...ROC_RUN, status: 'running' }),
+    })
+    const plan = await toThePlan(user)
+    await user.click(within(plan).getByRole('button', { name: 'Train' }))
+    await screen.findByText('Training Run')
+    await emitJobEvent('j1', 'completed', {
+      status: 'completed',
+      progress: {},
+      result: ROC_RUN,
+      error: null,
+    })
+    return screen.findByTestId('leaderboard')
+  }
+
+  it("carries the backend's own reason for not ranking it", async () => {
+    const user = userEvent.setup()
+    const board = await showBoard(user)
+    const reason = within(board).getByTestId('unranked-svm')
+    expect(reason).toHaveTextContent('Not ranked')
+    expect(reason).toHaveTextContent('does not output class probabilities')
+  })
+
+  it('never sorts an unmeasurable Model above a measured one', async () => {
+    const user = userEvent.setup()
+    const board = await showBoard(user)
+    const rows = within(board).getAllByTestId(/^board-row-/)
+    // the SVM is present, but last and unnumbered — a leaderboard must not rank
+    // a Model it could not measure
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('Logistic Regression')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('SVM')).toBeInTheDocument()
+    expect(within(rows[1]).queryByText('1')).not.toBeInTheDocument()
+  })
+
+  it('lets you re-rank by a metric the run also computed', async () => {
+    const user = userEvent.setup()
+    const board = await showBoard(user)
+    // the SVM has no f1_macro either, so pick accuracy — which both Models have
+    const picker = within(board).getByLabelText('Rank by')
+    const options = within(picker).getAllByRole('option').map((o) => o.textContent)
+    expect(options).toContain('roc_auc (the run\'s own primary)')
+    expect(options).toContain('f1_macro')
   })
 })

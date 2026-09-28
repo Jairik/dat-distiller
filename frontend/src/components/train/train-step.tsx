@@ -17,12 +17,13 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
-import { InfoIcon, TriangleAlertIcon } from 'lucide-react'
+import { TriangleAlertIcon } from 'lucide-react'
 
 import { CardButton } from '@/components/cards/card-viewer'
 import { ChecksPanel } from '@/components/checks/checks-panel'
 import { JobProgress } from '@/components/jobs/job-progress'
 import { TrainingRunsPanel } from '@/components/cards/training-runs'
+import { LeaderboardPanel } from '@/components/train/leaderboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -608,7 +609,12 @@ function TrainingRunPanel({
           jobId={runId}
           label="Training"
           onSettled={(result) => result && onSettled(result as unknown as TrainingRun)}
-          renderResult={(result) => <Leaderboard run={result as unknown as TrainingRun} />}
+          renderResult={(result) => (
+            <div className="flex flex-col gap-4">
+              <RunWarnings run={result as unknown as TrainingRun} />
+              <Leaderboard run={result as unknown as TrainingRun} />
+            </div>
+          )}
           terminalExtra={
             <Button size="sm" variant="ghost" onClick={onAgain}>
               Train again
@@ -620,60 +626,31 @@ function TrainingRunPanel({
   )
 }
 
+/** What the run itself wants to say — a property of the run, not of the board. */
+function RunWarnings({ run }: { run: TrainingRun | null }) {
+  const warnings = run?.warnings ?? []
+  if (warnings.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-amber-400" data-testid="run-warnings">
+      {warnings.map((warning) => (
+        <li key={warning}>{warning}</li>
+      ))}
+    </ul>
+  )
+}
+
 function Leaderboard({ run }: { run: TrainingRun | null }) {
-  const board = run?.leaderboard ?? []
-  if (board.length === 0) {
+  if (!run?.leaderboard?.length) {
     return <p className="text-sm text-muted-foreground">No leaderboard yet.</p>
   }
-  const ranked = [...board].sort((a, b) => {
-    if (a.rank === null) return 1
-    if (b.rank === null) return -1
-    return a.rank - b.rank
-  })
   return (
-    <div data-testid="leaderboard" className="flex flex-col gap-2">
-      <table className="w-full text-sm">
-        <thead>
-          <tr>
-            <th className="px-2 py-1 text-left">#</th>
-            <th className="px-2 py-1 text-left">Model</th>
-            <th className="px-2 py-1 text-right">Primary</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ranked.map((entry) => (
-            <tr key={entry.model} className="align-top">
-              <td className="px-2 py-1 tabular-nums">{entry.rank ?? '—'}</td>
-              <td className="px-2 py-1">
-                <span className="font-medium">{entry.label}</span>
-                <span className="block text-xs text-muted-foreground">{entry.library}</span>
-                {entry.status === 'failed' && (
-                  <span className="block text-xs text-destructive">{entry.error}</span>
-                )}
-                {entry.rank === null && entry.status === 'ok' && (
-                  <span className="block text-xs text-amber-400">
-                    {entry.primary.reason ?? 'no comparable metric'}
-                  </span>
-                )}
-              </td>
-              <td className="px-2 py-1 text-right tabular-nums">
-                {entry.primary.value === null ? '—' : entry.primary.value.toFixed(4)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {run?.warnings && run.warnings.length > 0 && (
-        <ul className="flex flex-col gap-0.5 text-xs text-amber-400">
-          {run.warnings.map((warning) => (
-            <li key={warning}>
-              <InfoIcon aria-hidden className="mr-1 inline size-3" />
-              {warning}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <LeaderboardPanel
+      runId={String(run.training_run_id ?? '')}
+      board={run.leaderboard}
+      taskType={String(run.task_type ?? '')}
+      primaryMetric={String(run.primary_metric ?? 'f1_macro')}
+      primaryHigherIsBetter={run.primary_metric_higher_is_better ?? true}
+    />
   )
 }
 
