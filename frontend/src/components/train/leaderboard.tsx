@@ -50,6 +50,7 @@ import {
   RocView,
 } from '@/components/train/plots'
 import { fmtNumber } from '@/lib/format'
+import type { MetricSpecDto } from '@/lib/train'
 import { FairnessPanel } from '@/components/fairness/fairness-panel'
 
 export function LeaderboardPanel({
@@ -58,6 +59,7 @@ export function LeaderboardPanel({
   taskType,
   primaryMetric,
   primaryHigherIsBetter,
+  metrics = [],
   columns = [],
   declaredSensitiveAttribute = null,
 }: {
@@ -66,6 +68,8 @@ export function LeaderboardPanel({
   taskType: string
   primaryMetric: string
   primaryHigherIsBetter: boolean
+  /** The Task Type's metrics, which is where each one's direction is declared. */
+  metrics?: MetricSpecDto[]
   /** Candidate Sensitive Attributes, from the Training Run's own setup. */
   columns?: string[]
   declaredSensitiveAttribute?: string | null
@@ -75,7 +79,7 @@ export function LeaderboardPanel({
 
   const available = rankableMetrics(board)
   const chosen = available.includes(metric) ? metric : primaryMetric
-  const higherIsBetter = metricDirection(board, chosen, primaryMetric, primaryHigherIsBetter)
+  const higherIsBetter = metricDirection(chosen, primaryHigherIsBetter, metrics)
   const ranked = rankBy(board, chosen, higherIsBetter)
 
   const visible = showAll ? ranked : ranked.filter((entry) => entry.status === 'ok')
@@ -141,21 +145,19 @@ export function LeaderboardPanel({
 const SELECT_CLASS =
   'h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 md:text-sm dark:bg-input/30'
 
-/** Is a bigger number better for this metric? Read it off the board itself. */
+/** Is a bigger number better for this metric? Ask the registry, not the board. */
 function metricDirection(
-  board: LeaderboardEntry[],
   metric: string,
-  primary: string,
   primaryHigherIsBetter: boolean,
+  specs: readonly MetricSpecDto[],
 ): boolean {
-  if (metric === primary) return primaryHigherIsBetter
-  // Compare two Models: whichever scored higher on the backend's own primary
-  // should score higher here too. With a one-Model board there is nothing to
-  // compare, and higher-is-better is the friendlier default for these metrics.
-  const scored = board.filter((e) => e.status === 'ok' && e.metrics?.[metric]?.value != null)
-  if (scored.length < 2) return true
-  const [a, b] = scored
-  return (a.metrics[primary]?.value ?? 0) >= (b.metrics[primary]?.value ?? 0)
+  const spec = specs.find((candidate) => candidate.name === metric)
+  // An unknown metric falls back to the direction the run itself ranked on. It
+  // used to be *inferred* instead, by comparing two Models' primary scores —
+  // which says nothing about the metric being ranked by. That ranked a Model
+  // with nine times the error first on rmse, and captioned it "higher is
+  // better", because the run's primary happened to be r2.
+  return spec ? spec.higher_is_better : primaryHigherIsBetter
 }
 
 function LeaderboardRow({

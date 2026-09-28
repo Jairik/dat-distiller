@@ -237,6 +237,99 @@ const baseHandlers = {
   'GET /train/runs/j1': () => ({ ...RUN, status: 'running' }),
 }
 
+// -- a regression run, where the lower-is-better metrics live ----------------
+
+const REGRESSION_PLAN = {
+  ...PLAN,
+  target: 'price',
+  task_type: 'regression',
+  primary_metric: 'r2',
+  primary_metric_label: 'R\u00b2',
+  metrics_available: ['r2', 'rmse', 'mae'],
+  model_names: ['ridge'],
+}
+
+const REGRESSION_METRICS = {
+  task_types: {
+    regression: {
+      task_type: 'regression',
+      default_primary_metric: 'r2',
+      metrics: [
+        { name: 'r2', label: 'R\u00b2', task_type: 'regression', higher_is_better: true, needs_proba: false, is_default: true, description: '' },
+        { name: 'rmse', label: 'RMSE', task_type: 'regression', higher_is_better: false, needs_proba: false, is_default: false, description: '' },
+        { name: 'mae', label: 'MAE', task_type: 'regression', higher_is_better: false, needs_proba: false, is_default: false, description: '' },
+      ],
+    },
+  },
+}
+
+function regressionEntry(model: string, label: string, rmse: number, r2: number) {
+  return {
+    rank: null,
+    model,
+    label,
+    library: 'sklearn',
+    task_type: 'regression',
+    status: 'ok',
+    classes: [],
+    hyperparameters: {},
+    fit_seconds: 0.1,
+    metrics: {
+      r2: { value: r2, reason: null },
+      rmse: { value: rmse, reason: null },
+      mae: { value: rmse / 2, reason: null },
+    },
+    primary_metric: 'r2',
+    primary: { value: r2, reason: null },
+  }
+}
+
+const REGRESSION_RUN = {
+  ...RUN,
+  target: 'price',
+  task_type: 'regression',
+  primary_metric: 'r2',
+  primary_metric_higher_is_better: true,
+  warnings: [],
+  leaderboard: [
+    regressionEntry('ridge', 'Ridge', 1.0, 0.71),
+    regressionEntry('svm', 'SVM', 9.0, 0.6),
+  ],
+}
+
+/** Train a regression run and return its leaderboard. */
+async function showRegressionBoard(user: ReturnType<typeof userEvent.setup>) {
+  mockFetch({
+    ...baseHandlers,
+    'GET /dataset-versions/v1/preview': () => ({
+      version_id: 'v1',
+      columns: [
+        { name: 'age', kind: 'integer' },
+        { name: 'price', kind: 'number' },
+      ],
+      page: 0,
+      page_size: 1,
+      total_rows: 200,
+      rows: [[31, 12]],
+    }),
+    'GET /train/metrics': () => REGRESSION_METRICS,
+    'POST /train/plan': () => REGRESSION_PLAN,
+  })
+  renderWithProviders(<App />, { route: '/projects/p1/train?version=v1' })
+  await user.click(await screen.findByLabelText('price', { selector: '#target-price' }))
+  await user.click(await screen.findByRole('button', { name: 'See the plan' }))
+  await screen.findByTestId('train-plan')
+  await user.click(screen.getByRole('button', { name: 'Train' }))
+  await screen.findByText('Training Run')
+  await emitJobEvent('j1', 'completed', {
+    status: 'completed',
+    progress: {},
+    result: REGRESSION_RUN,
+    error: null,
+  })
+  return await screen.findByTestId('leaderboard')
+}
+
 /** The first Model's row, which is the one most of these act on. */
 function row(board: HTMLElement) {
   return within(within(board).getByTestId('board-row-logistic_regression'))
@@ -299,6 +392,32 @@ describe('Leaderboard', () => {
     // roc_auc is not offered as a plain option for a Model with no value... it is,
     // because another Model has it; and the run's own primary is labelled as such
     expect(within(picker).getByText("f1_macro (the run's own primary)")).toBeInTheDocument()
+  })
+
+  it('ranks a lower-is-better metric the right way round', async () => {
+    // The metric's direction is a property of the metric, declared in the
+    // registry. It used to be *inferred* by comparing two Models' primary
+    // scores, which says nothing about the metric being ranked by — so on a
+    // regression run whose primary is r2, ranking by rmse put the Model with
+    // nine times the error first and captioned it "higher is better".
+    const user = userEvent.setup()
+    const board = await showRegressionBoard(user)
+
+    // By the run's own primary (r2, higher is better) the better r2 leads.
+    const byR2 = within(board).getAllByTestId(/^board-row-/).map((node) => node.dataset.testid)
+    expect(byR2).toEqual(['board-row-ridge', 'board-row-svm'])
+
+    // Ranking by rmse reverses it, and says so.
+    await user.selectOptions(within(board).getByLabelText('Rank by'), 'rmse')
+    await waitFor(() => {
+      const byRmse = within(board)
+        .getAllByTestId(/^board-row-/)
+        .map((node) => node.dataset.testid)
+      expect(byRmse).toEqual(['board-row-ridge', 'board-row-svm'])
+    })
+    expect(within(board).getByText(/rankable on rmse \(lower is better\)/)).toBeInTheDocument()
+    // And the value carries a down arrow, not an up one.
+    expect(within(board).getByText(/rmse 1\.0000 ↓/)).toBeInTheDocument()
   })
 
   it('does not offer a metric the run never computed', () => {

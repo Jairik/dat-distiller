@@ -660,6 +660,12 @@ function RunWarnings({ run }: { run: TrainingRun | null }) {
 }
 
 function Leaderboard({ run }: { run: TrainingRun | null }) {
+  const taskType = run?.task_type ? String(run.task_type) : undefined
+  // The same query the step above already made, on the same cache key, so this
+  // is a cache read rather than a second request. The panel needs the registry
+  // because that is where each metric declares whether bigger is better.
+  const metrics = useMetrics(taskType)
+  const metricsForTask: MetricSpecDto[] = metrics.data?.task_types[taskType ?? '']?.metrics ?? []
   if (!run?.leaderboard?.length) {
     return <p className="text-sm text-muted-foreground">No leaderboard yet.</p>
   }
@@ -670,6 +676,7 @@ function Leaderboard({ run }: { run: TrainingRun | null }) {
       taskType={String(run.task_type ?? '')}
       primaryMetric={String(run.primary_metric ?? 'f1_macro')}
       primaryHigherIsBetter={run.primary_metric_higher_is_better ?? true}
+      metrics={metricsForTask}
       columns={fairnessColumns(run)}
       declaredSensitiveAttribute={(run.setup?.sensitive_attribute as string) ?? null}
     />
