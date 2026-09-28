@@ -70,6 +70,15 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+/** PUT `body` as JSON to `path` and parse the JSON response. */
+export function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 /** DELETE `path` (204 responses carry no body). */
 export function apiDelete(path: string): Promise<void> {
   return request<void>(path, { method: 'DELETE' })

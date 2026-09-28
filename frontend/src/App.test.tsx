@@ -96,18 +96,23 @@ describe('App shell', () => {
     )
   })
 
-  it('renders the settings status view', async () => {
+  it('routes /settings to the settings page', async () => {
     mockFetch({
       'GET /projects': () => [],
       'GET /settings': () => ({
+        default_provider: 'openrouter',
         models: {},
-        keys: { openrouter: { set: true, source: 'env' }, typesafe: { set: false, source: 'none' } },
+        soft_limits: { upload_rows: 10000, generation_rows: 5000, labeling_calls: 200 },
+        review_threshold: 0.8,
+        fairness_gap_threshold: 0.1,
+        keys: { openrouter: { set: true, source: 'env' }, typesafe: { set: false, source: null } },
         providers: [{ id: 'openrouter', kind: 'http', available: true }],
       }),
+      'GET /health': () => ({ status: 'ok', version: '0.1.0', extras: {} }),
     })
     renderWithProviders(<App />, { route: '/settings' })
-    expect((await screen.findAllByText('openrouter')).length).toBeGreaterThan(0)
-    expect(screen.getByText('set (env)')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(await screen.findByText('set (env)')).toBeInTheDocument()
     expect(screen.getByText('not set')).toBeInTheDocument()
   })
 
