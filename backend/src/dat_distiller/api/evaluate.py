@@ -16,7 +16,6 @@ import secrets
 from collections import OrderedDict
 from typing import Any
 
-import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile
 
 from ..ingest import (
@@ -35,6 +34,7 @@ from ..training.evaluate import (
     predict_frame,
     refit,
 )
+from ..training.run_rows import RunContext, resolve_run
 
 router = APIRouter(tags=["train"])
 
@@ -53,27 +53,40 @@ def _remember_predictions(body: bytes, filename: str) -> str:
     return token
 
 
-def _run(request: Request, run_id: str) -> dict[str, Any]:
-    """The persisted Training Run, or a 404 that says so plainly."""
+def _job(request: Request, run_id: str) -> Any:
+    """The Training Run's job, or a 404 that says so plainly."""
     from ..jobs import JobNotFoundError
 
     try:
-        job = request.app.state.jobs.get(run_id)
+        return request.app.state.jobs.get(run_id)
     except JobNotFoundError as exc:
         raise HTTPException(404, f"no Training Run with id {run_id!r}") from exc
+
+
+def _run(request: Request, run_id: str) -> dict[str, Any]:
+    """The persisted Training Run, or a 404 that says so plainly."""
     from .train import _run_payload  # local import avoids a cycle at module load
 
-    return _run_payload(job)
+    return _run_payload(_job(request, run_id))
 
 
-def _frame_for(request: Request, run: dict[str, Any]) -> pd.DataFrame:
-    version_id = str(run.get("version_id") or "")
-    if not version_id:
-        raise HTTPException(422, "this Training Run does not record its Dataset Version")
+def _run_rows(request: Request, run_id: str) -> RunContext:
+    """The rows the run actually worked on, rebuilt and checked.
+
+    A Training Run does not work on the Dataset Version as stored: it drops rows
+    with no Target value and rows whose labelling is still below the Review
+    threshold, and its split indices address what is left over. Reading the
+    stored version instead aims every index at the wrong row — silently, because
+    the indices are all still in range. So this goes through the same resolver a
+    Fairness Report uses, which rebuilds the filtered frame and refuses if the
+    stored split no longer reproduces.
+    """
     try:
-        return request.app.state.store.load_dataframe(version_id)
+        return resolve_run(request.app.state.store, _job(request, run_id))
     except DatasetVersionNotFoundError as exc:
         raise HTTPException(404, "the Dataset Version this run used is gone") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/train/runs/{run_id}/plots")
@@ -99,8 +112,9 @@ def run_plot(
         raise HTTPException(
             422, f"the {plot} plot needs a {expected} Target; this run's is {task_type}"
         )
+    context = _run_rows(request, run_id)
     try:
-        return evaluate_run(run, model, _frame_for(request, run), plot=plot, repeats=repeats)
+        return evaluate_run(run, model, context.data_frame, plot=plot, repeats=repeats)
     except NotOnRunError as exc:
         # asking for a Model that was not fitted is a mistake in the request
         raise HTTPException(422, str(exc)) from exc
@@ -123,6 +137,7 @@ async def run_predict(
     a classification Model), plus a `download_url` for the same thing as a file.
     """
     run = _run(request, run_id)
+    context = _run_rows(request, run_id)
     content = await file.read()
     if not content:
         raise HTTPException(422, "uploaded file is empty")
@@ -134,7 +149,7 @@ async def run_predict(
         raise HTTPException(422, str(exc)) from exc
 
     try:
-        predicted = predict_frame(run, model, frame, refit(run, model, _frame_for(request, run)))
+        predicted = predict_frame(run, model, frame, refit(run, model, context.data_frame))
     except EvaluationError as exc:
         raise HTTPException(422, str(exc)) from exc
 

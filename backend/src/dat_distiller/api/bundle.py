@@ -12,9 +12,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from ..jobs import JobNotFoundError
-from ..store.store import DatasetVersionNotFoundError
 from ..training.bundle import BundleError, build_bundle
 from ..training.evaluate import NotOnRunError
+from .evaluate import _run_rows
 
 router = APIRouter(tags=["train"])
 
@@ -27,16 +27,6 @@ def _run(request: Request, run_id: str) -> dict[str, Any]:
     except JobNotFoundError as exc:
         raise HTTPException(404, f"no Training Run with id {run_id!r}") from exc
     return _run_payload(job)
-
-
-def _frame(request: Request, run: dict[str, Any]):
-    version_id = str(run.get("version_id") or "")
-    if not version_id:
-        raise HTTPException(422, "this Training Run does not record its Dataset Version")
-    try:
-        return request.app.state.store.load_dataframe(version_id)
-    except DatasetVersionNotFoundError as exc:
-        raise HTTPException(404, "the Dataset Version this run used is gone") from exc
 
 
 def _model_card(request: Request, run: dict[str, Any]) -> str | None:
@@ -68,11 +58,16 @@ def download_bundle(
 ) -> Response:
     """The fitted Model, its pipeline, its metadata and its Card, as a zip."""
     run = _run(request, run_id)
+    # The run's own rows, not the Dataset Version as stored: the bundle refits the
+    # Model on the recorded training split and describes its inputs from these
+    # rows, so a different row space would export a different Model than the
+    # leaderboard ranked.
+    context = _run_rows(request, run_id)
     try:
         payload = build_bundle(
             run,
             model,
-            _frame(request, run),
+            context.data_frame,
             model_card=_model_card(request, run),
             with_onnx=onnx,
         )

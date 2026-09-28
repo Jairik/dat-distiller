@@ -58,21 +58,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 from ..extras import is_installed
 from .checks import value_key
-from .preprocess import transform_with_spec
-from .setup import DEFAULT_REVIEW_THRESHOLD, TrainingSetup, build_setup
-from .train import TrainingRunRequest, split_request
+from .run_rows import RunContext, resolve_run
 from .trainers import (
     CLASSIFICATION,
     MODEL_SPECS,
     REGRESSION,
     ModelError,
-    TrainingMatrix,
-    assert_held_out,
-    encode_classes,
     encode_regression,
     encode_with_classes as _encode_with_classes,
     fit_model,
@@ -880,138 +874,17 @@ def _notes(
 # -- rebuilding the run ------------------------------------------------------
 
 
-@dataclass
-class RunContext:
-    """The stored Training Run, rebuilt into the exact rows and matrix it used."""
-
-    run: dict[str, Any]
-    setup: TrainingSetup
-    request: TrainingRunRequest
-    #: The Dataset Version as stored, before the run's own row filtering.
-    source_frame: pd.DataFrame
-    #: The rows the run trained on and scored on, after that filtering.
-    frame: pd.DataFrame
-    preprocessing: dict[str, Any]
-    train_indices: list[int]
-    test_indices: list[int]
-    #: The Target's classes, sorted — the codes a prediction is aligned to.
-    classes: list[str] = field(default_factory=list)
-
-    @property
-    def train_frame(self) -> pd.DataFrame:
-        return self.frame.iloc[list(self.train_indices)]
-
-    @property
-    def test_frame(self) -> pd.DataFrame:
-        return self.frame.iloc[list(self.test_indices)]
-
-    def test_matrix(self) -> np.ndarray:
-        """The held-out matrix, from the run's **persisted** preprocessing spec."""
-        return transform_with_spec(self.test_frame, self.preprocessing)
-
-    def train_matrix(self) -> TrainingMatrix:
-        """The training matrix, built by the same closed constructor the run used."""
-        matrix = TrainingMatrix.from_split(
-            frame=self.frame, spec=self.preprocessing, setup=self.setup
-        )
-        assert_held_out(matrix.rows, self.test_indices)
-        return matrix
-
-
-def _persisted_run(job: Any) -> dict[str, Any]:
-    """The run dict from a finished Training Run, however it was stored."""
-    checkpoint = job.checkpoint or {}
-    run = checkpoint.get("run")
-    if isinstance(run, dict) and run:
-        return dict(run)
-    if isinstance(job.result, dict) and job.result:
-        return dict(job.result)
-    raise FairnessError(
-        "this Training Run has no persisted leaderboard yet, so there is no Model to report on. "
-        "Wait for the run to finish, or read its error."
-    )
-
-
 def load_run_context(store: Any, job: Any) -> RunContext:
     """Rebuild the run's rows, split and preprocessing — and prove they are its own.
 
-    The split is re-derived from the run's own request with the run's own review
-    threshold, then compared against the indices the run recorded. A mismatch
-    means the run's stored split cannot be reproduced, and the report is refused
-    rather than computed against different rows than the leaderboard used.
+    Thin wrapper over :func:`.run_rows.resolve_run`, which owns the rebuild and
+    the check that the stored split still reproduces. Only the refusal is
+    re-voiced here, so a report can say so in the report's own terms.
     """
-    run = _persisted_run(job)
-    params = job.params or {}
-    if not params:
-        raise FairnessError(
-            "this Training Run recorded no request, so its split cannot be reproduced; re-run "
-            "the Training Run"
-        )
     try:
-        request = TrainingRunRequest.model_validate(params)
-    except Exception as exc:
-        raise FairnessError(
-            f"this Training Run's request can no longer be read ({exc}); re-run the Training Run"
-        ) from exc
-
-    version_id = str(run.get("version_id") or request.version_id)
-    source_frame = store.load_dataframe(version_id, include_provenance=True)
-    stored_setup = run.get("setup") or {}
-    # The run's own threshold, not today's: a changed setting must not move the
-    # rows this report measures.
-    review_threshold = float(stored_setup.get("review_threshold", DEFAULT_REVIEW_THRESHOLD))
-    try:
-        resolved = build_setup(split_request(request), source_frame, review_threshold=review_threshold)
+        return resolve_run(store, job)
     except ValueError as exc:
-        raise FairnessError(
-            f"this Training Run's setup can no longer be reproduced ({exc}); re-run it to get a "
-            "Fairness Report"
-        ) from exc
-
-    setup = resolved.setup
-    stored_test = [int(i) for i in ((run.get("test_split") or {}).get("indices") or [])]
-    stored_train = [int(i) for i in ((run.get("training_split") or {}).get("rows") or [])]
-    if not stored_test:
-        raise FairnessError(
-            "this Training Run recorded no held-out rows, so a Fairness Report has nothing to "
-            "measure; raise test_size and re-run it"
-        )
-    if [int(i) for i in setup.split.test] != stored_test:
-        raise FairnessError(
-            "this Training Run's held-out rows cannot be reproduced from its own request and "
-            "seed, so a Fairness Report would not measure the same rows as its leaderboard; "
-            "re-run the Training Run"
-        )
-    if stored_train and [int(i) for i in setup.split.train] != stored_train:
-        raise FairnessError(
-            "this Training Run's training rows cannot be reproduced from its own request and "
-            "seed, so the Model would be refitted on different data; re-run the Training Run"
-        )
-
-    preprocessing = run.get("preprocessing") or {}
-    if not preprocessing:
-        raise FairnessError(
-            "this Training Run recorded no preprocessing pipeline, so a Fairness Report cannot "
-            "rebuild the matrix the Model was fitted on; re-run the Training Run"
-        )
-
-    train_indices = [int(i) for i in setup.split.train]
-    classes: list[str] = []
-    if setup.task_type == CLASSIFICATION:
-        _codes, classes = encode_classes(
-            resolved.frame.iloc[train_indices][setup.target].to_numpy()
-        )
-    return RunContext(
-        run=run,
-        setup=setup,
-        request=request,
-        source_frame=source_frame,
-        frame=resolved.frame,
-        preprocessing=preprocessing,
-        train_indices=train_indices,
-        test_indices=[int(i) for i in setup.split.test],
-        classes=classes,
-    )
+        raise FairnessError(str(exc)) from exc
 
 
 def leaderboard_entry(run: Mapping[str, Any], model: str | None = None) -> dict[str, Any]:
