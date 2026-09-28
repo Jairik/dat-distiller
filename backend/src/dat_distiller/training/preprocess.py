@@ -235,8 +235,20 @@ def _numeric_values(series: pd.Series) -> np.ndarray:
 
 
 def _datetime_values(series: pd.Series) -> np.ndarray:
+    """Epoch seconds, with a missing timestamp left missing.
+
+    Casting a datetime64 column to int64 does not turn ``NaT`` into a gap — it
+    turns it into the int64 minimum, about 5e10 times larger than any real date
+    and on the wrong side of it. That number is finite, so the isfinite guards
+    below wave it through into the median, the mean and the scale fitted for the
+    column: one missing timestamp inflates the scale enough to squash every real
+    date into a sliver, and the corrupted pipeline is what gets persisted on the
+    run and shipped in the Model Bundle. So the gaps are put back explicitly.
+    """
     converted = pd.to_datetime(series, errors="coerce", utc=True)
-    return converted.astype("int64").to_numpy(dtype="float64") / 1_000_000_000.0
+    values = converted.astype("int64").to_numpy(dtype="float64") / 1_000_000_000.0
+    values[converted.isna().to_numpy()] = np.nan
+    return values
 
 
 def _is_missing(value: Any) -> bool:

@@ -1071,3 +1071,121 @@ def test_setup_round_trips_through_its_dict() -> None:
     assert restored.to_dict() == setup.to_dict()
     assert restored.feature_columns == setup.feature_columns
     assert math.isclose(restored.seed, setup.seed)
+
+
+# -- a missing timestamp stays missing ---------------------------------------
+
+
+def dated_frame(rows: int = 40, missing: tuple[int, ...] = (5, 17, 29)) -> pd.DataFrame:
+    """A datetime column with real spread and a few gaps in it."""
+    rng = np.random.default_rng(4)
+    base = pd.Timestamp("2021-01-01")
+    days = rng.integers(0, 900, rows)
+    when = [base + pd.Timedelta(days=int(day)) for day in days]
+    for position in missing:
+        when[position] = pd.NaT
+    return pd.DataFrame({"when": pd.Series(when, dtype="datetime64[ns]")}), days
+
+
+def test_a_missing_timestamp_does_not_enter_the_fitted_statistics() -> None:
+    """`NaT` is a gap, not the number -9.2e18.
+
+    Casting a datetime64 column to int64 maps `NaT` to the int64 minimum, and
+    that number is finite — so it survives every isfinite guard and lands in the
+    median, the mean and the scale. One missing timestamp then inflates the
+    scale far enough to squash all the real dates into a sliver, and the Model
+    sees a feature with almost no signal in it.
+
+    The pipeline deliberately fits its statistics on the median-filled column —
+    the values the Model will actually be handed — so that is what the mean and
+    the scale are compared against here. What matters is that the sentinel is
+    not in it.
+    """
+    frame, _days = dated_frame()
+    pipeline = Preprocessor.fit(frame, features=["when"])
+
+    real = frame["when"].dropna().astype("int64").to_numpy(dtype="float64") / 1e9
+    fill = float(np.median(real))
+    filled = np.where(frame["when"].isna().to_numpy(), fill, real_all(frame))
+
+    assert pipeline.spec.imputer.values["when"] == pytest.approx(fill)
+    assert pipeline.spec.scaler.mean["when"] == pytest.approx(float(filled.mean()))
+    assert pipeline.spec.scaler.scale["when"] == pytest.approx(float(filled.std()))
+
+    # Which is the point: the real dates still use the range they have, spread
+    # over the scale that was fitted. With the sentinel in the column the scale
+    # came out ~45x too large and this span collapsed to a fraction of a unit.
+    transformed = pipeline.transform(frame)[:, 0]
+    seen = np.delete(transformed, [5, 17, 29])
+    span_in_units = (real.max() - real.min()) / filled.std()
+    assert seen.max() - seen.min() == pytest.approx(span_in_units, rel=1e-6)
+    assert span_in_units > 1.0, "a real date range must not collapse into a sliver"
+    # A gap lands on the imputed value, not off at the far end of the scale.
+    expected_gap = (fill - filled.mean()) / filled.std()
+    for position in (5, 17, 29):
+        assert transformed[position] == pytest.approx(expected_gap)
+
+
+def real_all(frame: pd.DataFrame) -> np.ndarray:
+    """Epoch seconds for every row, with the gaps left as they are."""
+    converted = pd.to_datetime(frame["when"], errors="coerce", utc=True)
+    out = converted.astype("int64").to_numpy(dtype="float64") / 1e9
+    out[converted.isna().to_numpy()] = np.nan
+    return out
+
+
+def test_a_datetime_column_that_is_entirely_missing_is_still_handled() -> None:
+    """All gaps is a degenerate column, and it must not produce a sentinel.
+
+    There is no median to take here, so the pipeline falls back to 0 — which for
+    a datetime column means the epoch. That is a real instant, and it keeps the
+    matrix finite. The sentinel would not: it is a negative number that no
+    timestamp can ever be, and it would be persisted as this column's imputed
+    value.
+    """
+    frame = pd.DataFrame({"when": pd.Series([pd.NaT] * 6, dtype="datetime64[ns]")})
+    pipeline = Preprocessor.fit(frame, features=["when"])
+    assert np.isfinite(pipeline.transform(frame)).all()
+    assert pipeline.spec.scaler.scale["when"] > 0
+    # Epoch seconds are positive; the int64 minimum is not.
+    assert pipeline.spec.imputer.values["when"] >= 0
+
+
+def test_the_persisted_pipeline_on_a_run_is_the_corrected_one(client) -> None:
+    """What the run records — and the bundle ships — is fitted from real values.
+
+    The corrupted mean and scale were not confined to one call: they were
+    persisted on the Training Run and written into the Model Bundle, so a
+    downstream consumer inherited them. This pins the persisted spec.
+    """
+    import time as _time
+
+    frame, _days = dated_frame()
+    frame["kind"] = ["a", "b"] * (len(frame) // 2)
+    frame[PROVENANCE_COLUMN] = [json.dumps({"row_origin": "uploaded"}) for _ in range(len(frame))]
+
+    project = client.post("/api/projects", json={"name": "dates"}).json()["id"]
+    store: DatasetStore = client.app.state.store
+    version = store.create_version(project, frame, origin="uploaded").id
+    start = client.post(
+        "/api/train/run",
+        json={"version_id": version, "target": "kind", "models": ["logistic_regression"], "seed": 2},
+    )
+    assert start.status_code == 202, start.text
+    deadline = _time.time() + 240
+    job: dict = {}
+    while _time.time() < deadline:
+        job = client.get(f"/api/jobs/{start.json()['id']}").json()
+        if job["status"] in ("completed", "failed", "cancelled"):
+            break
+        _time.sleep(0.02)
+    assert job["status"] == "completed", job.get("error")
+
+    spec = job["result"]["preprocessing"]
+    # The run fits on its own training split, so this compares against a bound
+    # rather than re-deriving the split. The sentinel put the scale ~45x out and
+    # the mean a decade out; neither can hide inside these bounds.
+    real = frame["when"].dropna().astype("int64").to_numpy(dtype="float64") / 1e9
+    assert spec["scaler"]["scale"]["when"] == pytest.approx(float(real.std()), rel=0.5)
+    assert spec["scaler"]["mean"]["when"] == pytest.approx(float(real.mean()), rel=0.01)
+    assert spec["imputer"]["values"]["when"] == pytest.approx(float(np.median(real)), rel=0.01)
