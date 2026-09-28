@@ -9,6 +9,7 @@ import { ChecksPanel } from '@/components/checks/checks-panel'
 import { DataPreview } from '@/components/dataset/data-preview'
 import { ProvenanceLegend } from '@/components/dataset/provenance-bar'
 import { FidelityPanel } from '@/components/fidelity/fidelity-panel'
+import { ReviewQueuePanel } from '@/components/review/review-queue'
 import { UploadDrop } from '@/components/dataset/upload-drop'
 import { VersionTree } from '@/components/dataset/version-tree'
 import { Badge } from '@/components/ui/badge'
@@ -73,6 +74,7 @@ export function DatasetPage() {
             </header>
             <DataPreview key={selected.id} versionId={selected.id} />
             {selected.origin === 'generated' && <FidelityPanel versionId={selected.id} />}
+            {selected.origin === 'labeled' && <ReviewQueuePanel versionId={selected.id} />}
             {/* the closing panel of this step: the Checks the upload and any
                 fidelity run raised on this Version, gating the way to Generate */}
             <ChecksPanel
