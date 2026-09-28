@@ -15,6 +15,7 @@ from ..store import DatasetStore
 from ..store.paths import AppPaths
 from .checks import router as checks_router
 from .fidelity import router as fidelity_router
+from .evaluate import router as evaluate_router
 from .frontend import mount_frontend
 from .generate import router as generate_router
 from .jev import router as jev_router
@@ -76,6 +77,7 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.include_router(jev_router, prefix="/api")
     app.include_router(pii_router, prefix="/api")
     app.include_router(train_router, prefix="/api")
+    app.include_router(evaluate_router, prefix="/api")
     app.include_router(review_router, prefix="/api")
     mount_frontend(app)
     return app
