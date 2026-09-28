@@ -15,12 +15,17 @@ from .base import (
     parse_json_reply,
     validate_structured,
 )
+from .cli import CLI_PROVIDERS, ClaudeCodeProvider, CodexProvider, OpenCodeProvider
 from .registry import FAKE_PROVIDERS_ENV, provider_options, resolve_provider
 
 __all__ = [
+    "CLI_PROVIDERS",
+    "ClaudeCodeProvider",
+    "CodexProvider",
     "FAKE_PROVIDERS_ENV",
     "FakeProvider",
     "InvalidStructuredOutputError",
+    "OpenCodeProvider",
     "Provider",
     "ProviderError",
     "ProviderNotConfiguredError",

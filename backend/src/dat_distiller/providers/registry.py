@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from .base import FakeProvider, Provider, ProviderNotConfiguredError
+from .cli import CLI_PROVIDERS
 from .openrouter import OpenRouterProvider
 
 #: When set, every Provider resolves to FakeProvider (used by the e2e suite
@@ -34,6 +35,10 @@ def resolve_provider(
 
     if provider_id == "fake":
         return FakeProvider(model=chosen_model or "fake-model")
+    if provider_id in CLI_PROVIDERS:
+        # call sites needing the first-use Check pass checks_store/project_id
+        # to complete() directly; resolution stays uniform here.
+        return CLI_PROVIDERS[provider_id](model=chosen_model)
     if provider_id == "openrouter":
         key = settings_store.api_key("openrouter")
         if not key:
@@ -42,7 +47,9 @@ def resolve_provider(
             )
         return OpenRouterProvider(api_key=key, model=chosen_model)
     raise ProviderNotConfiguredError(
-        f"unknown provider {provider_id!r}; CLI Providers are claude/codex/opencode"
+        f"unknown provider {provider_id!r}; available: openrouter, "
+        + "/".join(sorted(CLI_PROVIDERS))
+        + ", fake"
     )
 
 
