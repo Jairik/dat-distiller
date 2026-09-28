@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { GenerateStep } from '@/components/generate/generate-step'
+import { LabelStep } from '@/components/label/label-step'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProjectsPage } from '@/components/projects/projects-page'
 import { DatasetPage } from '@/routes/dataset-page'
@@ -22,15 +23,7 @@ export default function App() {
           <Route index element={<Navigate to="dataset" replace />} />
           <Route path="dataset" element={<DatasetPage />} />
           <Route path="generate" element={<GenerateStep />} />
-          <Route
-            path="label"
-            element={
-              <SectionPlaceholder
-                title="Label"
-                blurb="Define Jev Questions, label rows, and clear the Review Queue here."
-              />
-            }
-          />
+          <Route path="label" element={<LabelStep />} />
           <Route
             path="train"
             element={

@@ -27,7 +27,21 @@ export interface JobSnapshot {
   error: string | null
 }
 
-export const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+/**
+ * Statuses a job will never move on from by itself.
+ *
+ * `interrupted` belongs here: a server restart stops a run dead, and nothing
+ * will resume it but the user. Treating it as still-running left the progress
+ * bar spinning forever, `onSettled` never firing, and — the real cost — no
+ * Resume button, so an interrupted Labeling run was unrecoverable from the UI.
+ * Resuming re-queues the job, so the snapshot picks it up again from the start.
+ */
+export const TERMINAL_STATUSES = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+  'interrupted',
+])
 
 export function jobPercent(progress: Record<string, unknown>): number {
   const done = Number(progress.done ?? 0)

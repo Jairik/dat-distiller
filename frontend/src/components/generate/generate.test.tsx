@@ -413,7 +413,7 @@ describe('Generate step — the run and the gate to Label', () => {
     await user.click(gate)
     // the Label step is where the acknowledgement sends you
     await waitFor(() => expect(screen.queryByText('Ready to generate')).not.toBeInTheDocument())
-    expect(screen.getByText(/Define Jev Questions, label rows/)).toBeInTheDocument()
+    expect(screen.getByText('Jev Questions')).toBeInTheDocument()
   })
 
   it('says so when a run dropped rows, rather than quietly losing them', async () => {

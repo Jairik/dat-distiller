@@ -17,6 +17,7 @@ export function JobProgress({
   renderResult,
   terminalExtra,
   onSettled,
+  onStatus,
 }: {
   jobId: string
   label?: string
@@ -27,6 +28,13 @@ export function JobProgress({
    * to know a Dataset Version now exists. `result` is null unless it completed.
    */
   onSettled?: (result: Record<string, unknown> | null, status: string) => void
+  /**
+   * Called whenever the status changes. Lets a parent react to a status (say,
+   * offer Resume for an interrupted run) without opening a *second* SSE
+   * connection to the same job, which is what calling `useJobSnapshot` in the
+   * parent would have done.
+   */
+  onStatus?: (status: string) => void
 }) {
   const queryClient = useQueryClient()
   const snapshot = useJobSnapshot(jobId)
@@ -43,6 +51,9 @@ export function JobProgress({
     settled.current = true
     onSettled?.(snapshot.result, snapshot.status)
   }, [snapshot, onSettled])
+  useEffect(() => {
+    if (snapshot) onStatus?.(snapshot.status)
+  }, [snapshot?.status, onStatus])
 
   if (!snapshot) {
     return <p className="text-sm text-muted-foreground">Waiting for {label}…</p>
