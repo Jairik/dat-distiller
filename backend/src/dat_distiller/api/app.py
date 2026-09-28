@@ -17,6 +17,7 @@ from .checks import router as checks_router
 from .frontend import mount_frontend
 from .generate import router as generate_router
 from .jobs import router as jobs_router
+from .label import router as label_router
 from .providers import router as providers_router
 from .settings import router as settings_router
 from .projects import router as projects_router
@@ -49,6 +50,9 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     from ..generate.run import register_generation_job
 
     register_generation_job(app.state.jobs, app)
+    from ..label import register_label_job
+
+    register_label_job(app.state.jobs, app)
     app.include_router(api_router)
     app.include_router(projects_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")
@@ -57,5 +61,6 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.include_router(settings_router, prefix="/api")
     app.include_router(providers_router, prefix="/api")
     app.include_router(generate_router, prefix="/api")
+    app.include_router(label_router, prefix="/api")
     mount_frontend(app)
     return app
