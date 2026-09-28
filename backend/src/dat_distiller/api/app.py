@@ -10,11 +10,13 @@ from .. import __version__
 from ..checks import CheckStore
 from ..extras import installed_extras
 from ..jobs import JobManager
+from ..settings import SettingsStore
 from ..store import DatasetStore
 from ..store.paths import AppPaths
 from .checks import router as checks_router
 from .frontend import mount_frontend
 from .jobs import router as jobs_router
+from .settings import router as settings_router
 from .projects import router as projects_router
 from .uploads import router as uploads_router
 
@@ -41,10 +43,12 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.state.store = store or DatasetStore(AppPaths.from_env())
     app.state.checks = CheckStore(app.state.store.db)
     app.state.jobs = JobManager(app.state.store.db)
+    app.state.settings = SettingsStore()
     app.include_router(api_router)
     app.include_router(projects_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")
     app.include_router(checks_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
+    app.include_router(settings_router, prefix="/api")
     mount_frontend(app)
     return app
