@@ -90,6 +90,33 @@ def encode_classes(values: Sequence[Any]) -> tuple[np.ndarray, list[str]]:
     return np.array([lookup[key] for key in keys], dtype="int64"), classes
 
 
+def encode_with_classes(values: Sequence[Any], classes: Sequence[str]) -> np.ndarray:
+    """Class-encode values against a **fixed** class list.
+
+    :func:`encode_classes` builds its own mapping from the rows it is given, so
+    scoring a split whose Target is missing a class would renumber every code
+    after it and quietly compare predictions against the wrong truth. Here the
+    list is the Model's own, and an unknown class is an error rather than a
+    silent shift.
+
+    This is the only correct way to encode held-out truth: the codes a Model
+    predicts are positions in the vocabulary it was *fitted* on, so the truth
+    has to be measured in that same vocabulary.
+    """
+    lookup = {str(key): position for position, key in enumerate(classes)}
+    codes: list[int] = []
+    for index, value in enumerate(values):
+        key = value_key(value)
+        if key not in lookup:
+            raise ModelError(
+                f"row {index} has Target value {value!r} ({key}), which is not one of the "
+                f"Model's classes: {', '.join(lookup)}. The stored split and the stored Model "
+                "no longer describe the same data"
+            )
+        codes.append(lookup[key])
+    return np.asarray(codes, dtype="int64")
+
+
 def encode_regression(values: Sequence[Any]) -> np.ndarray:
     """The Target as floats; anything not a number is a readable refusal."""
     out: list[float] = []
@@ -1383,6 +1410,7 @@ __all__ = [
     "default_primary_metric",
     "encode_classes",
     "encode_regression",
+    "encode_with_classes",
     "evaluate_classification",
     "evaluate_regression",
     "fit_model",

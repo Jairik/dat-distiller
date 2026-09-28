@@ -344,6 +344,57 @@ def test_the_run_records_the_split_it_trained_on_and_scored_on(
     assert run["leaderboard"][0]["metrics"]["n_test"] == 12
 
 
+def test_a_target_class_that_lands_only_in_train_does_not_shift_the_scores(
+    client: TestClient, project_id: str
+) -> None:
+    """The held-out truth is encoded in the vocabulary the Model was fitted on.
+
+    A Target class of a single row is kept whole in the training split, so it
+    never appears among the held-out rows. Rebuilding the held-out vocabulary
+    from those rows alone makes it one class shorter, which renumbers every
+    other class and scores the Model against the wrong truth — silently, with no
+    error anywhere, because the codes are still all in range.
+
+    The board has to report what the Model actually achieved. Here it is a clean
+    1.0: the two big classes are far apart on the feature, so a Model that works
+    at all gets every held-out row right.
+    """
+    rng = np.random.default_rng(7)
+    # 'a' is a singleton in its own cluster at 0; 'b' and 'c' sit either side of
+    # it. Sorted, 'str:a' comes first, so it shifts both of the others when it is
+    # missing from the held-out rows.
+    features = np.concatenate([rng.normal(-4, 0.4, 20), rng.normal(4, 0.4, 20), [0.0]])
+    kinds = ["b"] * 20 + ["c"] * 20 + ["a"]
+    order = rng.permutation(len(kinds))
+    frame = pd.DataFrame(
+        {
+            "feature": features[order],
+            "kind": [kinds[position] for position in order],
+            PROVENANCE_COLUMN: [json.dumps({"row_origin": "uploaded"}) for _ in kinds],
+        }
+    )
+    store: DatasetStore = client.app.state.store
+    singleton = store.create_version(project_id, frame, origin="uploaded").id
+
+    run = train(
+        client, version_id=singleton, target="kind", models=["logistic_regression"], seed=1
+    )
+    entry = next(e for e in run["leaderboard"] if e["model"] == "logistic_regression")
+
+    # The precondition: the singleton really is train-only, so the two
+    # vocabularies would differ if the held-out rows built their own.
+    assert entry["classes"] == ["str:a", "str:b", "str:c"]
+    held_out = [frame["kind"].iloc[position] for position in run["test_split"]["indices"]]
+    assert "a" not in held_out, "this test is only meaningful while 'a' is train-only"
+
+    # The honest score, and the one the run reported, are the same number.
+    assert entry["metrics"]["accuracy"]["value"] == 1.0
+    assert entry["metrics"]["f1_macro"]["value"] == 1.0
+    # The confusion matrix is indexed by the Model's classes, so it still has all
+    # three rows — including the one that never reaches the held-out split.
+    assert sum(sum(row) for row in entry["metrics"]["confusion_matrix"]) == len(held_out)
+
+
 def test_the_run_raises_the_same_check_vocabulary_against_the_training_run(
     client: TestClient, project_id: str
 ) -> None:

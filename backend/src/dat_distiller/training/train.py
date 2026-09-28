@@ -206,16 +206,24 @@ def _score(
 
     The **only** place the test matrix is built, and it runs after every Model
     has been tuned and fitted.
+
+    The held-out truth is encoded against ``fitted.classes`` — the vocabulary the
+    Model was *fitted* on — not one rebuilt from the test rows. A class that
+    lives only in the training split (any Target class of a single row) would
+    make a rebuilt vocabulary shorter, shifting every code after it and scoring
+    the Model against the wrong truth without any error.
     """
     test_frame = frame.iloc[list(setup.split.test)]
     test_matrix = transform_with_spec(test_frame, pipeline.to_dict())
     if setup.task_type == trainers.CLASSIFICATION:
-        y_true, classes = trainers.encode_classes(test_frame[setup.target].to_numpy())
+        y_true = trainers.encode_with_classes(
+            test_frame[setup.target].to_numpy(), fitted.classes
+        )
         return trainers.evaluate_classification(
             y_true,
             fitted.predict(test_matrix),
             proba=fitted.proba(test_matrix),
-            classes=classes,
+            classes=fitted.classes,
         )
     y_true = trainers.encode_regression(test_frame[setup.target].to_numpy())
     return trainers.evaluate_regression(y_true, fitted.predict(test_matrix))

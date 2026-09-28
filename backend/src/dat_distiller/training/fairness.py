@@ -74,6 +74,7 @@ from .trainers import (
     assert_held_out,
     encode_classes,
     encode_regression,
+    encode_with_classes as _encode_with_classes,
     fit_model,
     get_spec,
 )
@@ -187,23 +188,15 @@ def positive_class_code(classes: Sequence[str], positive_label: Any = None) -> t
 def encode_with_classes(values: Sequence[Any], classes: Sequence[str]) -> np.ndarray:
     """Class-encode values against a **fixed** class list.
 
-    :func:`trainers.encode_classes` builds its own mapping, so a value whose class
-    is missing from the rows it is given would shift every other code. Here the
-    list is the Model's own (from the training split), and an unseen class is an
-    error rather than a silent renumbering.
+    The mapping itself lives in :mod:`.trainers`, because it is the *Model's*
+    numbering that has to be respected, and the leaderboard and a Fairness
+    Report must agree on it. This wrapper only re-labels the refusal, so a
+    report can still say so in its own voice.
     """
-    lookup = {str(key): position for position, key in enumerate(classes)}
-    codes: list[int] = []
-    for index, value in enumerate(values):
-        key = value_key(value)
-        if key not in lookup:
-            raise FairnessError(
-                f"row {index} has Target value {value!r} ({key}), which is not one of the "
-                f"Model's classes: {', '.join(lookup)}. The stored split and the stored Model "
-                "no longer describe the same data"
-            )
-        codes.append(lookup[key])
-    return np.asarray(codes, dtype="int64")
+    try:
+        return _encode_with_classes(values, classes)
+    except ModelError as exc:
+        raise FairnessError(str(exc)) from exc
 
 
 # -- per-group metrics -------------------------------------------------------
