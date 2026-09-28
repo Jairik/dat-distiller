@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { GenerateStep } from '@/components/generate/generate-step'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProjectsPage } from '@/components/projects/projects-page'
 import { DatasetPage } from '@/routes/dataset-page'
@@ -20,15 +21,7 @@ export default function App() {
         <Route path="projects/:projectId" element={<ProjectPage />}>
           <Route index element={<Navigate to="dataset" replace />} />
           <Route path="dataset" element={<DatasetPage />} />
-          <Route
-            path="generate"
-            element={
-              <SectionPlaceholder
-                title="Generate"
-                blurb="Configure Generation Modes and watch runs land as new Versions."
-              />
-            }
-          />
+          <Route path="generate" element={<GenerateStep />} />
           <Route
             path="label"
             element={

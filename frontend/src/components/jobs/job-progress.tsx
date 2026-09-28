@@ -3,6 +3,7 @@
  * a slot where callers render the run's result.
  */
 
+import { useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiPost } from '@/api/client'
 import { AnimatedNumber } from '@/components/motion'
@@ -15,11 +16,17 @@ export function JobProgress({
   label = 'Job',
   renderResult,
   terminalExtra,
+  onSettled,
 }: {
   jobId: string
   label?: string
   renderResult?: (result: Record<string, unknown>) => React.ReactNode
   terminalExtra?: React.ReactNode
+  /**
+   * Called once when the job first reaches a terminal state — the step needs it
+   * to know a Dataset Version now exists. `result` is null unless it completed.
+   */
+  onSettled?: (result: Record<string, unknown> | null, status: string) => void
 }) {
   const queryClient = useQueryClient()
   const snapshot = useJobSnapshot(jobId)
@@ -27,6 +34,15 @@ export function JobProgress({
     mutationFn: () => apiPost<unknown>(`/jobs/${jobId}/cancel`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['job', jobId] }),
   })
+  const settled = useRef(false)
+  useEffect(() => {
+    settled.current = false
+  }, [jobId])
+  useEffect(() => {
+    if (!snapshot || settled.current || !TERMINAL_STATUSES.has(snapshot.status)) return
+    settled.current = true
+    onSettled?.(snapshot.result, snapshot.status)
+  }, [snapshot, onSettled])
 
   if (!snapshot) {
     return <p className="text-sm text-muted-foreground">Waiting for {label}…</p>
