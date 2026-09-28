@@ -402,3 +402,51 @@ describe('overrideProblem', () => {
     expect(overrideProblem('score', 5)).toBeNull()
   })
 })
+
+describe('ReviewQueuePanel — staged decisions belong to one Dataset Version', () => {
+  it('does not carry a staged decision over to another version', async () => {
+    // Selecting a version only changes `?v=`, so nothing unmounts and the panel
+    // kept `staged`. The decision then went to the *new* version's endpoint with
+    // the old row index — a label nobody reviewed, written into a Dataset
+    // Version the reviewer was no longer looking at, branching a child from the
+    // wrong parent.
+    const user = userEvent.setup()
+    const V3 = { ...V2, id: 'v3', number: 3, parent_id: 'v2' }
+    const v3Queue = {
+      ...QUEUE,
+      version_id: 'v3',
+      items: [item(11), item(13, { confidence: 0.6 })],
+      queued_count: 2,
+    }
+    mockFetch({
+      ...baseHandlers,
+      'GET /projects/p1': () => ({ ...project, version_count: 3, latest_version_id: 'v3' }),
+      'GET /projects/p1/dataset_versions': () => [V1, V2, V3],
+      'GET /dataset-versions/v3/preview': () => ({
+        version_id: 'v3',
+        columns: [{ name: 'age', kind: 'integer' }],
+        page: 0,
+        page_size: 1,
+        total_rows: 40,
+        rows: [[44]],
+      }),
+      'GET /dataset-versions/v3/review-queue': () => v3Queue,
+      'GET /dataset-versions/v3/review-status': () => ({ ...STATUS, version_id: 'v3' }),
+    })
+    renderQueue()
+    await screen.findByText('Review Queue')
+
+    // Stage an accept against v2's first row.
+    await user.click(screen.getAllByRole('button', { name: 'Accept' })[0])
+    expect(await screen.findByText('1 staged')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply 1 decision' })).toBeEnabled()
+
+    // Move to v3 in the version tree.
+    await user.click(screen.getByRole('button', { name: /^v3/ }))
+
+    // v3's queue is showing, and the decision staged for v2 is not offered.
+    await waitFor(() => expect(screen.getByTestId('queue-item-11-tone')).toBeInTheDocument())
+    expect(screen.queryByText('1 staged')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply 0 decisions' })).toBeDisabled()
+  })
+})

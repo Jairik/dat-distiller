@@ -44,7 +44,21 @@ export function DatasetPage() {
       </aside>
       <section className="flex min-w-0 flex-col gap-4">
         {selected ? (
-          <>
+          /* Keyed on the version, and keyed *here* rather than on each panel.
+             Selecting a version only changes `?v=`, so `PageIn` does not remount
+             and every panel below keeps the state it accumulated — staged review
+             decisions and the row cursor, staged PII Actions, a half-written
+             Acknowledgement note. A decision made about v2 would then be applied
+             to v3: a fabricated label, and a child version branching from the
+             wrong parent.
+
+             Putting the key on the wrapper rather than on each panel is not
+             incidental. Keying the siblings individually made React *duplicate*
+             them instead of replacing them, because this fragment mixes keyed
+             children with unkeyed ones and with `{cond && ...}` holes. One key
+             on one element that owns the whole version-scoped block is both the
+             guarantee and the only thing here that behaves. */
+          <div key={selected.id} className="flex min-w-0 flex-col gap-4">
             <header className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">
@@ -82,7 +96,9 @@ export function DatasetPage() {
                 />
               </div>
             </header>
-            <DataPreview key={selected.id} versionId={selected.id} />
+            <DataPreview versionId={selected.id} />
+            {/* FidelityPanel holds no state of its own — it is one query keyed on
+                the version — so the wrapper's key costs it nothing it was using. */}
             {selected.origin === 'generated' && <FidelityPanel versionId={selected.id} />}
             {selected.origin === 'labeled' && <ReviewQueuePanel versionId={selected.id} />}
             <PiiPanel versionId={selected.id} />
@@ -94,7 +110,7 @@ export function DatasetPage() {
               continueLabel="Go to Generate"
               onContinue={() => navigate(`/projects/${project.id}/generate?from=${selected.id}`)}
             />
-          </>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Select or upload a Dataset Version.</p>
         )}

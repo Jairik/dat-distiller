@@ -349,3 +349,44 @@ describe('pii helpers', () => {
     ).toEqual(['ok', 'fine'])
   })
 })
+
+describe('PiiPanel — the staged PII Actions belong to one Dataset Version', () => {
+  it('does not carry a staged PII Action over to another version', async () => {
+    // Selecting a version only changes `?v=`, so nothing unmounts. Without a
+    // key the panel keeps `choice`, and the Mask staged against v1 is then
+    // applied to v2 — a silent rewrite of a Dataset Version the user never
+    // looked at.
+    const user = userEvent.setup()
+    const V2 = { ...V1, id: 'v2', number: 2, origin: 'masked', parent_id: 'v1' }
+    mockFetch({
+      ...baseHandlers,
+      'GET /projects/p1': () => ({ ...project, version_count: 2, latest_version_id: 'v2' }),
+      'GET /projects/p1/dataset_versions': () => [V1, V2],
+      'GET /dataset-versions/v2/pii': () => ({
+        ...SCAN,
+        version_id: 'v2',
+        findings: [{ ...SCAN.findings[0] }],
+        summary: { columns: ['email'], detectors: { email: 12 }, total_findings: 12 },
+      }),
+      'GET /dataset-versions/v2/preview': () => ({
+        ...baseHandlers['GET /dataset-versions/v1/preview'](),
+        version_id: 'v2',
+      }),
+    })
+    renderWithProviders(<App />, { route: '/projects/p1/dataset?v=v1' })
+
+    await user.click(within(await screen.findByTestId('pii-email')).getByRole('button', { name: 'Mask' }))
+    expect(await screen.findByText('email: mask')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Apply to 1 column/ })).toBeEnabled()
+
+    // Move to the other version in the tree.
+    await user.click(screen.getByRole('button', { name: /^v2/ }))
+
+    // The staged action belonged to v1 and must not be offered for v2.
+    await waitFor(() =>
+      expect(screen.getByText('Pick Mask or Drop on a column to act on it.')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('email: mask')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Apply to 0 columns/ })).toBeDisabled()
+  })
+})
