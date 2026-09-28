@@ -170,6 +170,49 @@ describe('Dataset Versions panel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('unsupported file type')
   })
 
+  it('ends the step with the Checks panel, gated on the selected version', async () => {
+    const user = userEvent.setup()
+    const pii = {
+      id: 'c1',
+      kind: 'pii_found',
+      severity: 'warning' as const,
+      message: 'Possible email addresses were found in 12 rows.',
+      subject_type: 'dataset_version' as const,
+      subject_id: 'v3',
+      details: { columns: ['email'] },
+      acknowledged: false,
+      acknowledged_at: null,
+      note: null,
+    }
+    const acked = new Set<string>()
+    const { calls } = mockFetch({
+      ...baseHandlers,
+      'GET /projects/p1/dataset_versions': () => [V1, V2, V3],
+      'GET /dataset-versions/v3/preview': () => previewBody(1),
+      'GET /checks': () => {
+        const check = { ...pii, acknowledged: acked.has('c1'), acknowledged_at: '2024-01-01T00:00:00Z' }
+        return { checks: [check], unacknowledged_warnings: acked.has('c1') ? 0 : 1 }
+      },
+      'POST /checks/c1/acknowledge': () => {
+        acked.add('c1')
+        return { ...pii, acknowledged: true, acknowledged_at: '2024-01-01T00:00:00Z' }
+      },
+    })
+    renderWithProviders(<App />, { route: '/projects/p1/dataset?v=v3' })
+
+    expect(await screen.findByText(pii.message)).toBeInTheDocument()
+    // the gate is on the version the user is looking at
+    expect(
+      calls.some(([, p]) => p.startsWith('/checks?subject_type=dataset_version&subject_id=v3')),
+    ).toBe(true)
+
+    const gate = screen.getByRole('button', { name: 'Go to Generate' })
+    expect(gate).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }))
+    await user.click(screen.getByRole('button', { name: 'Record Acknowledgement' }))
+    await waitFor(() => expect(gate).toBeEnabled())
+  })
+
   it('empty tree nudges toward upload', async () => {
     mockFetch({
       ...baseHandlers,

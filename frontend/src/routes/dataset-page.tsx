@@ -4,7 +4,8 @@
  * right. Selection lives in the `?v=` query param so it is deep-linkable.
  */
 
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ChecksPanel } from '@/components/checks/checks-panel'
 import { DataPreview } from '@/components/dataset/data-preview'
 import { ProvenanceLegend } from '@/components/dataset/provenance-bar'
 import { UploadDrop } from '@/components/dataset/upload-drop'
@@ -18,6 +19,7 @@ import { useProjectContext } from '@/routes/project-page'
 export function DatasetPage() {
   const { project } = useProjectContext()
   const versions = useVersions(project.id)
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const list = versions.data ?? []
   const selectedId = params.get('v') ?? list.at(-1)?.id ?? null
@@ -69,6 +71,14 @@ export function DatasetPage() {
               </div>
             </header>
             <DataPreview key={selected.id} versionId={selected.id} />
+            {/* the closing panel of this step: the Checks the upload and any
+                fidelity run raised on this Version, gating the way to Generate */}
+            <ChecksPanel
+              subjectType="dataset_version"
+              subjectId={selected.id}
+              continueLabel="Go to Generate"
+              onContinue={() => navigate(`/projects/${project.id}/generate?from=${selected.id}`)}
+            />
           </>
         ) : (
           <p className="text-sm text-muted-foreground">Select or upload a Dataset Version.</p>
