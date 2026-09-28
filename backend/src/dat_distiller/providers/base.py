@@ -126,10 +126,13 @@ def synthesize(schema: dict[str, Any]) -> Any:
     if "anyOf" in schema:
         return synthesize(schema["anyOf"][0])
     kind = schema.get("type")
+    if isinstance(kind, list):  # e.g. ["number", "null"]
+        kind = next((k for k in kind if k != "null"), "null") if kind else "null"
     if kind == "object":
-        return {
-            key: synthesize(sub) for key, sub in schema.get("properties", {}).items()
-        }
+        required = schema.get("required")
+        props = schema.get("properties", {})
+        keys = [k for k in props if required is None or k in required] or list(props)
+        return {key: synthesize(props[key]) for key in keys}
     if kind == "array":
         return [synthesize(schema.get("items", {"type": "string"}))]
     if kind == "integer" or kind == "number":
@@ -143,4 +146,6 @@ def synthesize(schema: dict[str, Any]) -> Any:
         return False
     if kind == "null":
         return None
+    if kind == "string":
+        return "s" * int(schema.get("minLength", 0) or 0) or "sample"
     return ""
