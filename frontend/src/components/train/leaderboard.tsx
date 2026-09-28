@@ -19,7 +19,7 @@
 
 import { useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { DownloadIcon, LineChartIcon, LoaderIcon, UploadIcon } from 'lucide-react'
+import { DownloadIcon, LineChartIcon, LoaderIcon, ScaleIcon, UploadIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,6 +50,7 @@ import {
   RocView,
 } from '@/components/train/plots'
 import { fmtNumber } from '@/lib/format'
+import { FairnessPanel } from '@/components/fairness/fairness-panel'
 
 export function LeaderboardPanel({
   runId,
@@ -57,12 +58,17 @@ export function LeaderboardPanel({
   taskType,
   primaryMetric,
   primaryHigherIsBetter,
+  columns = [],
+  declaredSensitiveAttribute = null,
 }: {
   runId: string
   board: LeaderboardEntry[]
   taskType: string
   primaryMetric: string
   primaryHigherIsBetter: boolean
+  /** Candidate Sensitive Attributes, from the Training Run's own setup. */
+  columns?: string[]
+  declaredSensitiveAttribute?: string | null
 }) {
   const [metric, setMetric] = useState(primaryMetric)
   const [showAll, setShowAll] = useState(false)
@@ -116,6 +122,8 @@ export function LeaderboardPanel({
               metric={chosen}
               higherIsBetter={higherIsBetter}
               taskType={taskType}
+              columns={columns}
+              declaredSensitiveAttribute={declaredSensitiveAttribute}
             />
           ))}
         </ol>
@@ -156,14 +164,19 @@ function LeaderboardRow({
   metric,
   higherIsBetter,
   taskType,
+  columns,
+  declaredSensitiveAttribute,
 }: {
   runId: string
   entry: RankedEntry
   metric: string
   higherIsBetter: boolean
   taskType: string
+  columns: string[]
+  declaredSensitiveAttribute: string | null
 }) {
   const [open, setOpen] = useState<PlotName | null>(null)
+  const [fairness, setFairness] = useState(false)
   const plots: PlotName[] =
     taskType === 'regression'
       ? [...REGRESSION_PLOTS, 'feature_importance']
@@ -223,6 +236,15 @@ function LeaderboardRow({
             )
           })}
           <PredictButton runId={runId} entry={entry} />
+          <Button
+            size="sm"
+            variant={fairness ? 'secondary' : 'outline'}
+            onClick={() => setFairness(!fairness)}
+            aria-expanded={fairness}
+          >
+            <ScaleIcon aria-hidden />
+            Fairness Report
+          </Button>
           <Button size="sm" variant="ghost" asChild>
             <a href={bundleUrl(runId, entry.model)} download={`${entry.model}-bundle.zip`}>
               <DownloadIcon aria-hidden />
@@ -231,6 +253,26 @@ function LeaderboardRow({
           </Button>
         </div>
       )}
+
+      <AnimatePresence initial={false}>
+        {fairness && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <FairnessPanel
+              runId={runId}
+              columns={columns}
+              models={[{ name: entry.model, label: entry.label }]}
+              declaredAttribute={declaredSensitiveAttribute}
+              defaultModel={entry.model}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence initial={false}>
         {open && (

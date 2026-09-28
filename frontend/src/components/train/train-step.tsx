@@ -626,6 +626,26 @@ function TrainingRunPanel({
   )
 }
 
+/**
+ * The columns a Fairness Report could be run against.
+ *
+ * The Target is excluded: a group defined by the thing you are predicting is not
+ * a group, and the backend refuses it. Everything else the run saw is offered.
+ */
+function fairnessColumns(run: TrainingRun | null): string[] {
+  const setup = run?.setup ?? {}
+  const target = String(setup.target ?? run?.target ?? '')
+  // `excluded_columns` is a column -> reason mapping, so its keys are the names
+  const excluded = setup.excluded_columns
+  const excludedNames =
+    excluded && !Array.isArray(excluded) ? Object.keys(excluded) : (excluded as string[] | undefined) ?? []
+  const known = [
+    ...((setup.feature_columns as string[] | undefined) ?? []),
+    ...excludedNames,
+  ]
+  return [...new Set(known)].filter((column) => column !== target)
+}
+
 /** What the run itself wants to say — a property of the run, not of the board. */
 function RunWarnings({ run }: { run: TrainingRun | null }) {
   const warnings = run?.warnings ?? []
@@ -650,6 +670,8 @@ function Leaderboard({ run }: { run: TrainingRun | null }) {
       taskType={String(run.task_type ?? '')}
       primaryMetric={String(run.primary_metric ?? 'f1_macro')}
       primaryHigherIsBetter={run.primary_metric_higher_is_better ?? true}
+      columns={fairnessColumns(run)}
+      declaredSensitiveAttribute={(run.setup?.sensitive_attribute as string) ?? null}
     />
   )
 }
