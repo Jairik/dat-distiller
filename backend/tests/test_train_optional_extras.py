@@ -46,13 +46,13 @@ def version(client: TestClient, project_id: str) -> str:
 
 @pytest.fixture
 def no_extras(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    """Pretend this install has neither scikit-learn nor LightGBM."""
-    real = trainers.is_installed
+    """Pretend this install has none of the optional extras at all.
 
-    def is_installed(module: str) -> bool:
-        return False if module in ("sklearn", "lightgbm") else real(module)
-
-    monkeypatch.setattr(trainers, "is_installed", is_installed)
+    Every extra is switched off, not just scikit-learn and LightGBM: what this
+    module exercises is the state a *bare* install is in, and that has to mean
+    the same thing on a machine that has torch installed as on one that does not.
+    """
+    monkeypatch.setattr(trainers, "is_installed", lambda module: False)
     return monkeypatch
 
 
@@ -82,9 +82,13 @@ def test_the_registry_reports_the_models_this_install_cannot_run(
     by_name = {model["name"]: model for model in body["models"]}
     assert by_name["logistic_regression"]["available"] is False
     assert by_name["lightgbm"]["available"] is False
+    assert by_name["torch_mlp"]["available"] is False
+    assert by_name["tensorflow_mlp"]["available"] is False
     # The metadata is still there, so the UI can say what would be gained.
     assert by_name["lightgbm"]["library"] == "lightgbm"
     assert by_name["lightgbm"]["search_space"]
+    assert by_name["torch_mlp"]["extra"] == "torch"
+    assert by_name["torch_mlp"]["default_hyperparameters"]["classification"]
 
 
 # -- refusals ---------------------------------------------------------------
@@ -107,6 +111,33 @@ def test_selecting_a_model_whose_extra_is_missing_is_refused(
     )
     assert lightgbm.status_code == 422
     assert "lightgbm" in lightgbm.json()["detail"]
+
+
+@pytest.mark.parametrize("name", ["torch_mlp", "tensorflow_mlp"])
+def test_a_missing_neural_extra_is_a_readable_422_with_the_install_command(
+    client: TestClient, version: str, no_extras: pytest.MonkeyPatch, name: str
+) -> None:
+    """The acceptance criterion: a missing extra explains itself, and does not crash.
+
+    The plan endpoint refuses before a job starts, so the UI gets a 422 whose
+    detail names the Model, the extra and the command — no traceback, no job
+    that dies halfway through a leaderboard.
+    """
+    response = client.post(
+        "/api/train/plan", json={"version_id": version, "target": "is_spam", "models": [name]}
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    extra = "torch" if name == "torch_mlp" else "tensorflow"
+    assert name in detail
+    assert extra in detail
+    assert f"--extra {extra}" in detail, "the error has to say how to get the Model"
+    # And the run endpoint refuses the same way, before starting a job.
+    started = client.post(
+        "/api/train/run", json={"version_id": version, "target": "is_spam", "models": [name]}
+    )
+    assert started.status_code == 422
+    assert name in started.json()["detail"]
 
 
 def test_the_run_endpoint_refuses_before_it_starts_a_job(
@@ -135,7 +166,7 @@ def test_a_partial_install_keeps_the_models_it_has(
     """Every extra but LightGBM present: the default selection drops it and says so.
 
     Patched wholesale rather than off the real install, so this test means the
-    same thing on a bare install and on a full one.
+    same thing on a bare install, a full one, and a machine with only torch.
     """
     monkeypatch.setattr(trainers, "is_installed", lambda module: module != "lightgbm")
     plan = client.post(
@@ -145,12 +176,13 @@ def test_a_partial_install_keeps_the_models_it_has(
     assert {"logistic_regression", "svm", "random_forest", "knn", "naive_bayes"} <= set(
         plan["model_names"]
     )
+    assert "torch_mlp" in plan["model_names"], "an installed extra is offered"
     assert plan["unavailable_models"] == [
         {"model": "lightgbm", "reason": "needs the optional extra 'lightgbm'"}
     ]
 
 
 def test_building_a_model_without_its_extra_is_a_readable_error(no_extras: pytest.MonkeyPatch) -> None:
-    for name in ("knn", "lightgbm", "random_forest"):
+    for name in ("knn", "lightgbm", "random_forest", "torch_mlp", "tensorflow_mlp"):
         with pytest.raises(ModelUnavailableError, match="not installed"):
             trainers.build_estimator(get_spec(name), get_spec(name).task_types[0])

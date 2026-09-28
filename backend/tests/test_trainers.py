@@ -79,7 +79,13 @@ EXPECTED = {
     "knn": ("classification", "regression"),
     "naive_bayes": ("classification",),
     "lightgbm": ("classification", "regression"),
+    "torch_mlp": ("classification", "regression"),
+    "tensorflow_mlp": ("classification", "regression"),
 }
+
+#: The Models behind a heavy extra: the registry always describes them, but
+#: whether *this* machine can build one is exactly what `is_available` answers.
+MAYBE_MISSING = ("torch_mlp", "tensorflow_mlp")
 
 
 def test_every_required_model_is_registered_with_its_task_types() -> None:
@@ -89,15 +95,32 @@ def test_every_required_model_is_registered_with_its_task_types() -> None:
 
 
 def test_the_registry_says_which_optional_extra_each_model_needs() -> None:
-    assert {spec.extra for spec in MODEL_SPECS.values()} == {"sklearn", "lightgbm"}
+    assert {spec.extra for spec in MODEL_SPECS.values()} == {
+        "sklearn",
+        "lightgbm",
+        "torch",
+        "tensorflow",
+    }
     assert MODEL_SPECS["lightgbm"].library == "lightgbm"
-    assert all(spec.library == "scikit-learn" for name, spec in MODEL_SPECS.items() if name != "lightgbm")
+    assert MODEL_SPECS["torch_mlp"].library == "torch"
+    assert MODEL_SPECS["tensorflow_mlp"].library == "tensorflow"
+    assert all(
+        spec.library == "scikit-learn"
+        for name, spec in MODEL_SPECS.items()
+        if name not in ("lightgbm", *MAYBE_MISSING)
+    )
 
 
 def test_the_registry_reports_which_models_this_install_can_run() -> None:
     for spec in MODEL_SPECS.values():
+        if spec.name in MAYBE_MISSING:
+            continue
         assert trainers.is_available(spec), f"{spec.name} should be importable here"
         assert spec.name in available_models(spec.task_types[0])
+    for name in MAYBE_MISSING:
+        spec = MODEL_SPECS[name]
+        # Both answers come from the same probe, whether the extra is here or not.
+        assert (name in available_models(spec.task_types[0])) is trainers.is_available(spec), name
     assert "lightgbm" in available_models("regression")
     # Naive Bayes is classification only, so it is never offered for regression.
     assert "naive_bayes" not in available_models("regression")
@@ -169,10 +192,35 @@ def test_the_seed_reaches_the_hyperparameters_and_an_override_wins() -> None:
 def test_every_registered_model_can_actually_be_built_for_each_task_type() -> None:
     """Genuinely construct every estimator, so a bad default cannot ship."""
     for spec in MODEL_SPECS.values():
+        if not trainers.is_available(spec):
+            continue  # a heavy extra this machine does not have; tested where it is
         for task_type in spec.task_types:
             params = resolve_hyperparameters(spec, task_type, seed=1)
             estimator = trainers.build_estimator(spec, task_type, hyperparameters=params)
             assert type(estimator).__name__ == spec.path(task_type).split(":")[1]
+
+
+def test_a_neural_net_is_built_with_the_task_type_it_was_asked_for() -> None:
+    """A softmax head and a single linear unit are different networks."""
+    for name in ("torch_mlp", "tensorflow_mlp"):
+        if not trainers.is_available(MODEL_SPECS[name]):
+            continue
+        for task_type in ("classification", "regression"):
+            spec = MODEL_SPECS[name]
+            estimator = trainers.build_estimator(
+                spec, task_type, hyperparameters=resolve_hyperparameters(spec, task_type, seed=1)
+            )
+            assert estimator.task_type == task_type
+            assert estimator.wants_task_type
+
+
+def test_the_task_type_is_not_a_hyperparameter_the_user_can_set() -> None:
+    """It is injected by `build_estimator`, so it cannot be pinned or searched."""
+    for name in ("torch_mlp", "tensorflow_mlp"):
+        spec = MODEL_SPECS[name]
+        assert "task_type" not in spec.defaults_for("classification")
+        assert "task_type" not in spec.search_space
+        assert "task_type" not in resolve_hyperparameters(spec, "classification", seed=1)
 
 
 def test_library_versions_reports_what_was_used() -> None:
@@ -180,6 +228,8 @@ def test_library_versions_reports_what_was_used() -> None:
     assert set(versions) == {"python", "scikit-learn", "lightgbm"}
     assert versions["scikit-learn"] and versions["scikit-learn"][0].isdigit()
     assert library_versions()["scikit-learn"] is not None
+    # A library that ships under two names resolves through either of them.
+    assert set(library_versions()) >= {"torch", "tensorflow"}
 
 
 # -- the split guarantee ----------------------------------------------------

@@ -22,9 +22,10 @@ Three pieces, deliberately separate:
   cannot be computed honestly (no class probabilities, a single-class test
   split) is reported as ``null`` **with a reason**; a number is never invented.
 
-scikit-learn and LightGBM are optional extras: they are imported lazily, and
-:func:`available_models` / :func:`library_versions` say plainly when the
-install cannot run them.
+scikit-learn, LightGBM, PyTorch and TensorFlow are optional extras: they are
+imported lazily, and :func:`available_models` / :func:`library_versions` say
+plainly when the install cannot run them. A Model whose extra is missing is
+refused with the command that would fix it, never with an import traceback.
 """
 
 from __future__ import annotations
@@ -47,10 +48,15 @@ CLASSIFICATION = "classification"
 REGRESSION = "regression"
 TASK_TYPES = (CLASSIFICATION, REGRESSION)
 
-#: Library name -> distribution name, for the versions a Training Run records.
-LIBRARY_DISTRIBUTIONS = {
+#: Library name -> distribution name (or the distributions to try, in order, for
+#: the libraries that ship under more than one name), for the versions a
+#: Training Run records. ``tensorflow`` is the usual install, but the CPU-only
+#: build publishes as ``tensorflow-cpu`` and provides the same module.
+LIBRARY_DISTRIBUTIONS: dict[str, str | tuple[str, ...]] = {
     "scikit-learn": "scikit-learn",
     "lightgbm": "lightgbm",
+    "torch": "torch",
+    "tensorflow": ("tensorflow", "tensorflow-cpu"),
 }
 
 #: What every :class:`TrainingMatrix` must be built with. Without it the
@@ -293,6 +299,78 @@ MODEL_SPECS: dict[str, ModelSpec] = {
             seeded_params={"*": ("random_state",)},
             search_space={"num_leaves": [7, 15, 31], "learning_rate": [0.05, 0.1]},
         ),
+        ModelSpec(
+            name="torch_mlp",
+            label="MLP (PyTorch)",
+            library="torch",
+            extra="torch",
+            task_types=(CLASSIFICATION, REGRESSION),
+            # Both Task Types are the same class: `build_estimator` injects the
+            # Task Type (neural.MlpModel.wants_task_type), because a softmax head
+            # and a single linear unit are different networks.
+            estimators={
+                "classification": "dat_distiller.training.neural:TorchMLP",
+                "regression": "dat_distiller.training.neural:TorchMLP",
+            },
+            supports_proba=True,
+            default_hyperparameters={
+                "*": {
+                    "hidden_units": [64, 32],
+                    "epochs": 50,
+                    "learning_rate": 0.001,
+                    "batch_size": 32,
+                    "dropout": 0.0,
+                    "early_stopping": True,
+                    "patience": 10,
+                    "validation_fraction": 0.15,
+                }
+            },
+            seeded_params={"*": ("seed",)},
+            search_space={
+                "hidden_units": [[32], [64, 32]],
+                "learning_rate": [0.001, 0.01],
+                "epochs": [20, 50],
+            },
+            notes=(
+                "the optional extra 'torch'; 'hidden_units' lists the width of each "
+                "hidden layer, and early stopping watches 15% of the training split "
+                "— never the held-out test split"
+            ),
+        ),
+        ModelSpec(
+            name="tensorflow_mlp",
+            label="MLP (TensorFlow)",
+            library="tensorflow",
+            extra="tensorflow",
+            task_types=(CLASSIFICATION, REGRESSION),
+            estimators={
+                "classification": "dat_distiller.training.neural:TensorFlowMLP",
+                "regression": "dat_distiller.training.neural:TensorFlowMLP",
+            },
+            supports_proba=True,
+            default_hyperparameters={
+                "*": {
+                    "hidden_units": [64, 32],
+                    "epochs": 50,
+                    "learning_rate": 0.001,
+                    "batch_size": 32,
+                    "dropout": 0.0,
+                    "early_stopping": True,
+                    "patience": 10,
+                    "validation_fraction": 0.15,
+                }
+            },
+            seeded_params={"*": ("seed",)},
+            search_space={
+                "hidden_units": [[32], [64, 32]],
+                "learning_rate": [0.001, 0.01],
+                "epochs": [20, 50],
+            },
+            notes=(
+                "the optional extra 'tensorflow'; the same Model as torch_mlp in the "
+                "other framework, so the two are directly comparable on one board"
+            ),
+        ),
     )
 }
 
@@ -315,12 +393,22 @@ def is_available(spec: ModelSpec) -> bool:
 
 
 def library_versions(names: Sequence[str] | None = None) -> dict[str, str | None]:
-    """Versions of the libraries a Training Run records, ``None`` when absent."""
+    """Versions of the libraries a Training Run records, ``None`` when absent.
+
+    A library that ships under more than one distribution (``tensorflow`` and
+    the CPU-only ``tensorflow-cpu``) is looked up in order, and reports ``None``
+    only when none of them is installed.
+    """
     out: dict[str, str | None] = {"python": ".".join(str(p) for p in sys.version_info[:3])}
     for name in names if names is not None else list(LIBRARY_DISTRIBUTIONS):
-        try:
-            out[name] = dist_version(LIBRARY_DISTRIBUTIONS[name])
-        except PackageNotFoundError:
+        candidates = LIBRARY_DISTRIBUTIONS[name]
+        for distribution in (candidates,) if isinstance(candidates, str) else candidates:
+            try:
+                out[name] = dist_version(distribution)
+                break
+            except PackageNotFoundError:
+                continue
+        else:
             out[name] = None
     return out
 
@@ -406,13 +494,23 @@ def resolve_hyperparameters(
 def build_estimator(
     spec: ModelSpec, task_type: str, *, hyperparameters: Mapping[str, Any] | None = None
 ) -> Any:
-    """Instantiate the Model's estimator for a Task Type."""
+    """Instantiate the Model's estimator for a Task Type.
+
+    An estimator that declares ``wants_task_type`` (the neural nets, whose
+    classification and regression heads are different networks) is handed the
+    Task Type alongside the hyperparameters. It is injected rather than offered
+    as a hyperparameter, so it never appears in — or is tuned over in — the
+    mapping the Training Run records for the Model.
+    """
     if not is_available(spec):
         raise ModelUnavailableError(
             f"Model {spec.name!r} needs the optional extra {spec.extra!r}, which is not installed"
         )
     cls = _import_estimator(spec.path(task_type))
-    return cls(**dict(hyperparameters or {}))
+    params = dict(hyperparameters or {})
+    if getattr(cls, "wants_task_type", False):
+        params["task_type"] = task_type
+    return cls(**params)
 
 
 # -- the training matrix -----------------------------------------------------

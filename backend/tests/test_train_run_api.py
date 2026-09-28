@@ -25,8 +25,18 @@ from fastapi.testclient import TestClient
 
 from dat_distiller.store.provenance import PROVENANCE_COLUMN
 from dat_distiller.store.store import DatasetStore
+from dat_distiller.training import trainers
 
 pytest.importorskip("sklearn")
+
+#: Neural nets are the two heaviest Models on the board, so every test that
+#: happens to include them pins these: one hidden layer, a handful of epochs and
+#: no early stopping. Real defaults (50 epochs, two layers) belong in the
+#: dedicated neural tests, not in a test about the leaderboard's shape.
+TINY_NEURAL: dict[str, dict[str, Any]] = {
+    name: {"hidden_units": [8], "epochs": 4, "batch_size": 16, "early_stopping": False}
+    for name in ("torch_mlp", "tensorflow_mlp")
+}
 
 
 # -- data --------------------------------------------------------------------
@@ -104,6 +114,8 @@ def test_the_model_endpoint_lists_every_model_with_its_task_types(client: TestCl
         "knn",
         "naive_bayes",
         "lightgbm",
+        "torch_mlp",
+        "tensorflow_mlp",
     }
     assert by_name["naive_bayes"]["task_types"] == ["classification"]
     assert by_name["logistic_regression"]["task_types"] == ["classification"]
@@ -116,6 +128,15 @@ def test_the_model_endpoint_lists_every_model_with_its_task_types(client: TestCl
     assert by_name["random_forest"]["default_hyperparameters"]["regression"]
     assert by_name["random_forest"]["search_space"], "the UI needs a grid to show"
     assert body["extras"]["sklearn"] is True
+    # The neural nets are described whether or not the extras are here, so the
+    # picker can show them greyed out with the command that would enable them.
+    for name, extra in (("torch_mlp", "torch"), ("tensorflow_mlp", "tensorflow")):
+        model = by_name[name]
+        assert model["task_types"] == ["classification", "regression"]
+        assert model["extra"] == extra
+        assert model["available"] is body["extras"][extra]
+        assert model["search_space"], "tuning has to work on an MLP too"
+        assert model["default_hyperparameters"]["classification"]["hidden_units"]
 
 
 def test_the_metrics_endpoint_offers_a_default_per_task_type(client: TestClient) -> None:
@@ -229,25 +250,13 @@ def test_the_run_endpoint_validates_the_version_and_target(client: TestClient) -
 def test_a_training_run_fits_every_model_and_ranks_them(
     client: TestClient, version: str
 ) -> None:
-    run = train(client, version_id=version, target="is_spam")
+    # A default selection is every Model this install can run, which on a machine
+    # with the heavy extras also means the neural nets — pinned to a token number
+    # of epochs so the test does not pay for a real search.
+    run = train(client, version_id=version, target="is_spam", hyperparameters=TINY_NEURAL)
     board = run["leaderboard"]
-    assert [entry["model"] for entry in board] == [
-        "logistic_regression",
-        "svm",
-        "random_forest",
-        "gradient_boosting",
-        "knn",
-        "naive_bayes",
-        "lightgbm",
-    ] or set(entry["model"] for entry in board) == {
-        "logistic_regression",
-        "svm",
-        "random_forest",
-        "gradient_boosting",
-        "knn",
-        "naive_bayes",
-        "lightgbm",
-    }
+    expected = set(trainers.MODEL_SPECS) - {"linear_regression"}
+    assert set(entry["model"] for entry in board) == expected
     assert all(entry["status"] == "ok" for entry in board), [
         (entry["model"], entry.get("error")) for entry in board
     ]
