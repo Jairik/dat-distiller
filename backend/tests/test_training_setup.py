@@ -654,6 +654,33 @@ def test_class_balance_reports_counts_and_fractions() -> None:
     assert balance["imbalance_ratio"] == pytest.approx(3.0)
 
 
+def test_class_balance_measures_nothing_when_the_target_has_no_values() -> None:
+    """No values means no minority class and no imbalance — not "balanced".
+
+    The empty case used to report `min_fraction: 0.0` and `imbalance_ratio: 1.0`.
+    A ratio of exactly 1.0 is the signature of a perfectly even Target, so the
+    Check read as a clean result and would have passed a gate, when the honest
+    answer is that there is nothing to measure. The rest of the codebase already
+    has a convention for this — `fairness._measured` returns `value: None` with
+    the reason spelled out — and this now follows it.
+    """
+    balance = class_balance([])
+    assert balance["total"] == 0
+    assert balance["classes"] == 0
+    assert balance["min_fraction"] is None
+    assert balance["imbalance_ratio"] is None
+    assert "no values" in balance["reason"]
+    # And it is still JSON-safe, since this payload is persisted in a Check.
+    assert json.loads(json.dumps(balance))["min_fraction"] is None
+
+
+def test_a_single_class_target_still_reports_a_real_ratio() -> None:
+    """One class is perfectly balanced, and that is a measurement, not a gap."""
+    balance = class_balance(["a", "a", "a"])
+    assert balance["min_fraction"] == pytest.approx(1.0)
+    assert balance["imbalance_ratio"] == pytest.approx(1.0)
+
+
 def test_class_imbalance_check_fires_on_a_skewed_target() -> None:
     frame = imbalanced_frame()
     request = TrainingSetupRequest(version_id="v", target="region", features=["age"])

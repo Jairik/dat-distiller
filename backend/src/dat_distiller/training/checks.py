@@ -68,15 +68,28 @@ def _skipped(reason: str) -> dict[str, Any]:
 
 
 def class_balance(values: Iterable[Any]) -> dict[str, Any]:
-    """Per-class counts, shares, the smallest share and the imbalance ratio."""
+    """Per-class counts, shares, the smallest share and the imbalance ratio.
+
+    A Target with no values has no minority class and no imbalance, so the two
+    derived figures come back null with a reason rather than as 0.0 and 1.0.
+    A fabricated "perfectly balanced" reads as a clean result and would pass a
+    gate, when the truth is that there is nothing to measure.
+    """
     counts: dict[str, int] = {}
     for value in values:
         key = value_key(value)
         counts[key] = counts.get(key, 0) + 1
     total = sum(counts.values())
     if total == 0:
-        return {"total": 0, "classes": 0, "counts": {}, "fractions": {},
-                "min_fraction": 0.0, "imbalance_ratio": 1.0}
+        return {
+            "total": 0,
+            "classes": 0,
+            "counts": {},
+            "fractions": {},
+            "min_fraction": None,
+            "imbalance_ratio": None,
+            "reason": "the Target has no values, so there is no class to measure",
+        }
     fractions = {key: round(count / total, 4) for key, count in counts.items()}
     largest = max(counts.values())
     smallest = min(counts.values())
