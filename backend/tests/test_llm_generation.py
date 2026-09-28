@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -58,7 +56,15 @@ def test_valid_batch_is_accepted_as_is(profile) -> None:
 
 
 def test_invalid_batch_retried_with_error_feedback(profile) -> None:
-    bad = {"rows": [{"age": 5, "plan": "gold", "active": "maybe"}]}  # all three wrong
+    # a full-size batch of wrong rows: the schema now states the batch length, so
+    # a *short* batch would be refused at the Provider boundary before the
+    # per-field checks below ever ran
+    bad = {
+        "rows": [
+            {"age": 5, "plan": "gold", "active": "maybe"},
+            {"age": 5, "plan": "gold", "active": "maybe"},
+        ]
+    }
     good = {"rows": [valid_row(0), valid_row(1)]}
     provider = queue_provider([bad, good])
     result = generate_rows(provider, profile, "d", 2, batch_size=2)
@@ -69,6 +75,16 @@ def test_invalid_batch_retried_with_error_feedback(profile) -> None:
     assert "not one of" in second_prompt
     assert "not boolean" in second_prompt
     assert result.attempts == 2
+
+
+def test_a_short_batch_is_refused_and_the_count_is_carried_back(profile) -> None:
+    """The schema says how many rows a batch is for, so one is not a batch."""
+    short = {"rows": [valid_row(0)]}
+    good = {"rows": [valid_row(0), valid_row(1)]}
+    provider = queue_provider([short, good])
+    result = generate_rows(provider, profile, "d", 2, batch_size=2)
+    assert len(result.rows) == 2
+    assert "too short" in provider.calls[1]["prompt"]
 
 
 def test_still_invalid_rows_are_dropped_and_counted(profile) -> None:

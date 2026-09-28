@@ -37,13 +37,29 @@ class LLMSynthesisResult:
     failures: list[str] = field(default_factory=list)
 
 
-def rows_schema(profile: Profile) -> dict[str, Any]:
+def rows_schema(profile: Profile, count: int = 1) -> dict[str, Any]:
+    """The JSON Schema for one batch of rows.
+
+    ``minItems``/``maxItems`` state how many rows the batch is *for*. A Provider
+    that is only told "an array of rows" answers with one, and the caller then
+    re-asks with a byte-identical prompt — so the answer comes back identical
+    again, and a batch of fifty rows becomes fifty copies of one. Saying the
+    count in the schema is the fix a real Provider needs too.
+    """
     props: dict[str, Any] = {}
     for column in profile.columns:
         props[column.name] = _column_schema(column)
+    wanted = max(1, int(count))
     return {
         "type": "object",
-        "properties": {"rows": {"type": "array", "items": {"type": "object", "properties": props, "required": list(props)}}},
+        "properties": {
+            "rows": {
+                "type": "array",
+                "minItems": wanted,
+                "maxItems": wanted,
+                "items": {"type": "object", "properties": props, "required": list(props)},
+            }
+        },
         "required": ["rows"],
     }
 
@@ -66,6 +82,12 @@ def _column_schema(column: Any) -> dict[str, Any]:
         hint = (lo + hi) / 2 if lo is not None and hi is not None else (lo if lo is not None else hi if hi is not None else None)
         if hint is not None:
             schema["examples"] = [int(hint) if column.kind == "integer" else hint]
+        if lo is not None and hi is not None and hi > lo:
+            # `minimum`/`maximum` would be *enforced*, and the schema is
+            # deliberately permissive so a Provider's plausible imprecision is
+            # accepted. An unknown keyword carries the same information without
+            # that consequence.
+            schema["x-range"] = [lo, hi]
     if column.kind == "categorical" and column.categories:
         schema["examples"] = list(column.categories)
     return schema
@@ -173,7 +195,9 @@ def generate_rows(
     Terminates on: enough rows, a hard Provider failure, or a global request
     budget (so a Provider that only emits garbage cannot spin forever).
     """
-    schema = rows_schema(profile)
+    # the schema states the batch size, so a Provider is told how many rows the
+    # batch is for rather than only that it wants "an array of rows"
+    schema = rows_schema(profile, batch_size)
     base_prompt = build_prompt(description, profile, batch_size, sample_rows)
     nudge = balance_nudge(balance)
     if nudge:

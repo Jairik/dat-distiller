@@ -24,5 +24,10 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: false,
+    // The Playwright suite runs in a real browser against a real server
+    // (`npm run e2e`); it is not a jsdom test and Vitest must not try to load
+    // it, or every run reports a spurious failure.
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**', 'test-results/**', 'playwright-report/**'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })

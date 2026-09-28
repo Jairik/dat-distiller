@@ -61,8 +61,20 @@ export function apiGet<T>(path: string): Promise<T> {
   return request<T>(path)
 }
 
-/** POST `body` as JSON to `path` and parse the JSON response. */
+/**
+ * POST `body` to `path` and parse the JSON response.
+ *
+ * A `FormData` body is passed through **untouched** and gets no explicit
+ * `Content-Type`: the browser has to set that itself so it can include the
+ * multipart boundary. Stringifying it would send the literal text
+ * `"[object FormData]"` and the server would answer 422 for a reason that has
+ * nothing to do with the data — which is exactly what happened to the
+ * predict-on-CSV upload before the end-to-end suite found it.
+ */
 export function apiPost<T>(path: string, body: unknown): Promise<T> {
+  if (body instanceof FormData) {
+    return request<T>(path, { method: 'POST', body })
+  }
   return request<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -72,6 +84,9 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 
 /** PUT `body` as JSON to `path` and parse the JSON response. */
 export function apiPut<T>(path: string, body: unknown): Promise<T> {
+  if (body instanceof FormData) {
+    return request<T>(path, { method: 'PUT', body })
+  }
   return request<T>(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

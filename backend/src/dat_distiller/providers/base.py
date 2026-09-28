@@ -86,8 +86,20 @@ class FakeProvider:
     """Deterministic Provider for tests and the Playwright e2e suite.
 
     Given a `response_for(prompt, schema)` callable it uses that; otherwise it
-    synthesizes a minimal payload from the schema (first enum value, 0/""/[]
-    per type). Prompts are recorded for assertions.
+    synthesizes a **plausible** payload from the schema: an enum value, a number
+    inside the declared range, a string, all chosen deterministically from the
+    prompt so the same prompt always gives the same answer. Prompts are recorded
+    for assertions.
+
+    The values *vary between calls on purpose*. A fake that answered every prompt
+    with the first enum value and a zero made every downstream stage degenerate:
+    a seed set of fifty identical rows fits a copula with no variance, so hybrid
+    generation from Column Specs produced a Dataset Version where **every column
+    was constant** — a Review Queue with nothing to review, a classification
+    leaderboard with one class, and a Fairness Report with nothing to measure.
+    Anything the suite is supposed to exercise downstream of Generation needed
+    data with variance in it. Deterministic, offline and varied: the three
+    properties a fake has to have.
     """
 
     id = "fake"
@@ -102,7 +114,7 @@ class FakeProvider:
         payload = (
             self._response_for(prompt, schema)
             if self._response_for
-            else synthesize(schema)
+            else synthesize(schema, salt=prompt)
         )
         errors = validate_structured(payload, schema)
         if errors:
@@ -110,21 +122,52 @@ class FakeProvider:
         return payload
 
 
-def synthesize(schema: dict[str, Any]) -> Any:
-    """Best-effort minimal value conforming to a JSON Schema."""
+def _draw(salt: str | None) -> float:
+    """A stable 0..1 draw from a string, or 0.0 when there is nothing to salt."""
+    if not salt:
+        return 0.0
+    import hashlib
+
+    digest = hashlib.sha256(salt.encode()).digest()
+    return int.from_bytes(digest[:8], "big") / (2**64)
+
+
+def synthesize(schema: dict[str, Any], salt: str | None = None) -> Any:
+    """A value conforming to a JSON Schema, chosen deterministically from ``salt``.
+
+    With no ``salt`` this is the *minimal* conforming value — the first enum
+    member, zero inside any declared range — which is what a unit test wants when
+    it is asserting "the fake produced something valid". With a ``salt`` the value
+    is picked from the same space but varies, so a run of calls yields data with
+    variance rather than N copies of one row.
+    """
+    draw = _draw(salt)
     if "const" in schema:
         return schema["const"]
     if "enum" in schema:
-        return schema["enum"][0]
+        options = schema["enum"]
+        if not options:
+            return None
+        return options[0] if salt is None else options[int(draw * len(options)) % len(options)]
     if "allOf" in schema:
         merged = {}
         for part in schema["allOf"]:
             merged.update(part)
-        return synthesize(merged)
-    if "examples" in schema:
-        return schema["examples"][0]
+        return synthesize(merged, salt)
+    if "examples" in schema and "x-range" not in schema:
+        # `examples` is a *hint*, not a constraint, and it is where a column's
+        # declared categories live. Unsalted it is the first one; salted it is a
+        # choice from the set, which is what makes a fake's output vary in the
+        # ways the column spec says it may. A numeric `x-range` is handled below,
+        # where there is something to draw across rather than one midpoint.
+        options = [v for v in schema["examples"] if v is not None]
+        if not options:
+            return None
+        if salt is None or len(options) == 1:
+            return options[0]
+        return options[int(draw * len(options)) % len(options)]
     if "anyOf" in schema:
-        return synthesize(schema["anyOf"][0])
+        return synthesize(schema["anyOf"][0], salt)
     kind = schema.get("type")
     if isinstance(kind, list):  # e.g. ["number", "null"]
         kind = next((k for k in kind if k != "null"), "null") if kind else "null"
@@ -132,18 +175,40 @@ def synthesize(schema: dict[str, Any]) -> Any:
         required = schema.get("required")
         props = schema.get("properties", {})
         keys = [k for k in props if required is None or k in required] or list(props)
-        return {key: synthesize(props[key]) for key in keys}
+        return {key: synthesize(props[key], salt) for key in keys}
     if kind == "array":
-        return [synthesize(schema.get("items", {"type": "string"}))]
+        item = schema.get("items", {"type": "string"})
+        # Honour a stated length: a Provider asked for fifty rows and given one
+        # gets asked again with a byte-identical prompt, so it answers the same
+        # way and the "batch" is fifty copies of a single row.
+        try:
+            wanted = int(schema.get("minItems", 1))
+        except (TypeError, ValueError):
+            wanted = 1
+        wanted = max(1, min(wanted, 200))
+        return [
+            synthesize(item, None if salt is None else f"{salt}#{index}")
+            for index in range(wanted)
+        ]
     if kind == "integer" or kind == "number":
-        value = 0
-        if "minimum" in schema and value < schema["minimum"]:
-            value = schema["minimum"]
-        if "maximum" in schema and value > schema["maximum"]:
-            value = schema["maximum"]
-        return int(value) if kind == "integer" else float(value)
+        # a declared `x-range` is the *hint* a column spec carries; `minimum` /
+        # `maximum` are the enforced bounds. Prefer the hint when salted, so the
+        # fake draws across the range a real Provider would be shown.
+        hint = schema.get("x-range")
+        if salt is not None and isinstance(hint, list) and len(hint) == 2:
+            low, high = float(hint[0]), float(hint[1])
+        else:
+            low = schema.get("minimum", 0)
+            high = schema.get("maximum", low + 9)
+        if salt is None:
+            value = 0
+        else:
+            value = low + draw * (high - low)
+        value = max(value, low)
+        value = min(value, high)
+        return int(round(value)) if kind == "integer" else float(round(value, 6))
     if kind == "boolean":
-        return False
+        return draw > 0.5 if salt is not None else False
     if kind == "null":
         return None
     if kind == "string":
