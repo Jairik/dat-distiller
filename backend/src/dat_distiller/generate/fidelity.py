@@ -19,6 +19,7 @@ The dict is JSON-serializable and stored in the generated Dataset Version's
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -85,6 +86,39 @@ def _correlation_drift(sample: pd.DataFrame, generated: pd.DataFrame) -> float:
     if not mask.any():
         return 0.0
     return float(np.nanmax(np.where(mask, np.abs(s_corr - g_corr), np.nan)))
+
+
+def _correlation_matrices(
+    sample: pd.DataFrame | None, generated: pd.DataFrame
+) -> dict[str, Any]:
+    """Real and synthetic correlation matrices, plus their per-pair drift.
+
+    The report's ``correlation_drift`` is the single worst pair, which is the
+    right number for a Check and the wrong shape for a heatmap — you cannot see
+    *which* relationships moved. This returns the matrices so the UI can, and
+    keeps the scalar as ``max_drift`` so both views agree.
+    """
+    if sample is None:
+        return {"columns": [], "sample": [], "generated": [], "drift": [], "max_drift": 0.0}
+    shared = [c for c in _numeric_frame(sample).columns if c in _numeric_frame(generated).columns]
+    if len(shared) < 2:
+        return {"columns": shared, "sample": [], "generated": [], "drift": [], "max_drift": 0.0}
+    s_corr = _numeric_frame(sample)[shared].corr()
+    g_corr = _numeric_frame(generated)[shared].corr()
+    drift = (s_corr - g_corr).abs()
+    return {
+        "columns": shared,
+        "sample": [[_round(v) for v in row] for row in s_corr.to_numpy()],
+        "generated": [[_round(v) for v in row] for row in g_corr.to_numpy()],
+        "drift": [[_round(v) for v in row] for row in drift.to_numpy()],
+        "max_drift": _round(drift.to_numpy().max()),
+    }
+
+
+def _round(value: Any) -> float | None:
+    """JSON-safe float: NaN (an undefined correlation) becomes null, not NaN."""
+    number = float(value)
+    return None if math.isnan(number) else round(number, 4)
 
 
 def _near_copies(
