@@ -14,29 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { localSpecErrors, toSpec, toWireSpec } from '@/lib/generate'
 import { json, mockFetch, renderWithProviders } from '@/test/render'
+import { emitJobEvent, stubEventSource, waitForEventSource } from '@/test/sse'
 
-class FakeEventSource {
-  static instances: FakeEventSource[] = []
-  closed = false
-  listeners = new Map<string, (event: MessageEvent) => void>()
-  constructor(public url: string) {
-    FakeEventSource.instances.push(this)
-  }
-  addEventListener(name: string, fn: EventListener) {
-    this.listeners.set(name, fn as (event: MessageEvent) => void)
-  }
-  close() {
-    this.closed = true
-  }
-  onerror: ((event: unknown) => void) | null = null
-  emit(name: string, data: unknown) {
-    this.listeners.get(name)?.({ data: JSON.stringify(data) } as MessageEvent)
-  }
-}
 
 beforeEach(() => {
-  FakeEventSource.instances = []
-  vi.stubGlobal('EventSource', FakeEventSource)
+  stubEventSource()
 })
 
 afterEach(() => {
@@ -351,7 +333,7 @@ describe('Generate step — the run and the gate to Label', () => {
     await runToCompletion(user, { 'GET /jobs/j1': () => ({ id: 'j1', status: 'running', progress: { done: 1, total: 4 }, result: null }) })
 
     expect(await screen.findByText('Generation Run')).toBeInTheDocument()
-    const es = FakeEventSource.instances.at(-1)!
+    const es = await waitForEventSource('j1')
     es.emit('progress', { status: 'running', progress: { done: 4, total: 4 }, result: null, error: null })
     es.emit('completed', {
       status: 'completed',
@@ -394,7 +376,7 @@ describe('Generate step — the run and the gate to Label', () => {
       },
     })
 
-    const es = FakeEventSource.instances.at(-1)!
+    const es = await waitForEventSource('j1')
     es.emit('completed', {
       status: 'completed',
       progress: { done: 4, total: 4 },
@@ -421,7 +403,7 @@ describe('Generate step — the run and the gate to Label', () => {
     await runToCompletion(user, {
       'GET /jobs/j1': () => ({ id: 'j1', status: 'running', progress: {}, result: null }),
     })
-    FakeEventSource.instances.at(-1)!.emit('completed', {
+    await emitJobEvent('j1', 'completed', {
       status: 'completed',
       progress: {},
       result: { ...RUN_RESULT, dropped_rows: 37 },
@@ -435,7 +417,7 @@ describe('Generate step — the run and the gate to Label', () => {
     await runToCompletion(user, {
       'GET /jobs/j1': () => ({ id: 'j1', status: 'running', progress: {}, result: null }),
     })
-    FakeEventSource.instances.at(-1)!.emit('cancelled', {
+    await emitJobEvent('j1', 'cancelled', {
       status: 'cancelled',
       progress: {},
       result: null,

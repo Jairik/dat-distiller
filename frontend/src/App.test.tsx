@@ -116,14 +116,17 @@ describe('App shell', () => {
     expect(screen.getByText('not set')).toBeInTheDocument()
   })
 
-  it('shows a placeholder for later-issue sections', async () => {
+  it('shows the Training Runs list where the Train step will grow', async () => {
     mockFetch({
       'GET /projects': () => PROJECTS,
       'GET /projects/p1': () => PROJECTS[0],
       'GET /projects/p1/dataset_versions': () => [],
+      'GET /train/runs': () => ({ project_id: 'p1', count: 0, runs: [] }),
     })
     renderWithProviders(<App />, { route: '/projects/p1/train' })
-    expect(await screen.findByText(/Train models on labeled data/)).toBeInTheDocument()
+    expect(await screen.findByText('Training Runs')).toBeInTheDocument()
+    // the card header renders while the query is still in flight
+    expect(await screen.findByText(/No Training Runs yet/)).toBeInTheDocument()
   })
 
   it('reports a missing project with a way back', async () => {

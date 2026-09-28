@@ -14,29 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { overrideProblem, type QueueItem } from '@/lib/review'
 import { mockFetch, renderWithProviders } from '@/test/render'
+import { stubEventSource } from '@/test/sse'
 
-class FakeEventSource {
-  static instances: FakeEventSource[] = []
-  closed = false
-  listeners = new Map<string, (event: MessageEvent) => void>()
-  constructor(public url: string) {
-    FakeEventSource.instances.push(this)
-  }
-  addEventListener(name: string, fn: EventListener) {
-    this.listeners.set(name, fn as (event: MessageEvent) => void)
-  }
-  close() {
-    this.closed = true
-  }
-  onerror: ((event: unknown) => void) | null = null
-  emit(name: string, data: unknown) {
-    this.listeners.get(name)?.({ data: JSON.stringify(data) } as MessageEvent)
-  }
-}
 
 beforeEach(() => {
-  FakeEventSource.instances = []
-  vi.stubGlobal('EventSource', FakeEventSource)
+  stubEventSource()
 })
 
 afterEach(() => {

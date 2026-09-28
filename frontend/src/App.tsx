@@ -1,11 +1,11 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { TrainingRunsPanel } from '@/components/cards/training-runs'
 import { GenerateStep } from '@/components/generate/generate-step'
 import { LabelStep } from '@/components/label/label-step'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProjectsPage } from '@/components/projects/projects-page'
 import { DatasetPage } from '@/routes/dataset-page'
 import { ProjectPage } from '@/routes/project-page'
-import { SectionPlaceholder } from '@/routes/placeholder'
 import { SettingsPage } from '@/routes/settings-page'
 
 /**
@@ -24,15 +24,7 @@ export default function App() {
           <Route path="dataset" element={<DatasetPage />} />
           <Route path="generate" element={<GenerateStep />} />
           <Route path="label" element={<LabelStep />} />
-          <Route
-            path="train"
-            element={
-              <SectionPlaceholder
-                title="Train"
-                blurb="Train models on labeled data and compare Model Cards here."
-              />
-            }
-          />
+          <Route path="train" element={<TrainingRunsPanel />} />
         </Route>
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<ProjectsPage />} />

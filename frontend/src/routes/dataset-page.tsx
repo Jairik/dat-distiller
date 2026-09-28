@@ -5,6 +5,7 @@
  */
 
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { CardButton } from '@/components/cards/card-viewer'
 import { ChecksPanel } from '@/components/checks/checks-panel'
 import { DataPreview } from '@/components/dataset/data-preview'
 import { ProvenanceLegend } from '@/components/dataset/provenance-bar'
@@ -71,6 +72,14 @@ export function DatasetPage() {
                     Parquet
                   </a>
                 </Button>
+                <CardButton
+                  doc={{
+                    kind: 'dataset',
+                    id: selected.id,
+                    title: `Dataset Card — v${selected.number}`,
+                    subtitle: `${fmtNumber(selected.row_count)} rows · ${selected.origin}`,
+                  }}
+                />
               </div>
             </header>
             <DataPreview key={selected.id} versionId={selected.id} />

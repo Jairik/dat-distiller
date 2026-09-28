@@ -6,30 +6,12 @@ import { JobButton } from '@/components/jobs/job-button'
 import { JobProgress } from '@/components/jobs/job-progress'
 import { RunningJobsBanner } from '@/components/jobs/running-jobs-banner'
 import { json, mockFetch, renderWithProviders } from '@/test/render'
+import { stubEventSource, waitForEventSource } from '@/test/sse'
 
 /** EventSource double: captures instances so tests can push SSE frames. */
-class FakeEventSource {
-  static instances: FakeEventSource[] = []
-  closed = false
-  listeners = new Map<string, (event: MessageEvent) => void>()
-  constructor(public url: string) {
-    FakeEventSource.instances.push(this)
-  }
-  addEventListener(name: string, fn: EventListener) {
-    this.listeners.set(name, fn as (event: MessageEvent) => void)
-  }
-  close() {
-    this.closed = true
-  }
-  onerror: ((event: unknown) => void) | null = null
-  emit(name: string, data: unknown) {
-    this.listeners.get(name)?.({ data: JSON.stringify(data) } as MessageEvent)
-  }
-}
 
 beforeEach(() => {
-  FakeEventSource.instances = []
-  vi.stubGlobal('EventSource', FakeEventSource)
+  stubEventSource()
 })
 
 afterEach(() => {
@@ -62,7 +44,7 @@ describe('JobProgress', () => {
     expect(await screen.findByText('Generation')).toBeInTheDocument()
     expect(screen.getByText('running')).toBeInTheDocument()
 
-    const es = FakeEventSource.instances.at(-1)!
+    const es = await waitForEventSource('j1')
     es.emit('progress', { status: 'running', progress: { done: 7, total: 10 }, result: null, error: null })
     expect(await screen.findByText('70%')).toBeInTheDocument()
 
@@ -93,7 +75,7 @@ describe('JobProgress', () => {
       'GET /jobs/j1': () => ({ ...jobDto, progress: { done: 3, total: 10 } }),
     })
     renderWithProviders(<JobProgress jobId="j1" label="Poll me" />)
-    const es = FakeEventSource.instances.at(-1)!
+    const es = await waitForEventSource('j1')
     es.onerror?.({})
     expect(await screen.findByText('30%')).toBeInTheDocument()
     expect(es.closed).toBe(true)

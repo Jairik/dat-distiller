@@ -22,29 +22,11 @@ import {
   serializeState,
 } from '@/lib/label'
 import { mockFetch, renderWithProviders } from '@/test/render'
+import { emitJobEvent, stubEventSource } from '@/test/sse'
 
-class FakeEventSource {
-  static instances: FakeEventSource[] = []
-  closed = false
-  listeners = new Map<string, (event: MessageEvent) => void>()
-  constructor(public url: string) {
-    FakeEventSource.instances.push(this)
-  }
-  addEventListener(name: string, fn: EventListener) {
-    this.listeners.set(name, fn as (event: MessageEvent) => void)
-  }
-  close() {
-    this.closed = true
-  }
-  onerror: ((event: unknown) => void) | null = null
-  emit(name: string, data: unknown) {
-    this.listeners.get(name)?.({ data: JSON.stringify(data) } as MessageEvent)
-  }
-}
 
 beforeEach(() => {
-  FakeEventSource.instances = []
-  vi.stubGlobal('EventSource', FakeEventSource)
+  stubEventSource()
 })
 
 afterEach(() => {
@@ -425,7 +407,7 @@ describe('Label step — the preview gate and the run', () => {
     await user.click(await screen.findByRole('button', { name: /Label the whole Dataset Version/ }))
 
     await screen.findByText('Labeling run')
-    FakeEventSource.instances.at(-1)!.emit('completed', {
+    await emitJobEvent('j1', 'completed', {
       status: 'completed',
       progress: { done: 40, total: 40 },
       result: {
@@ -459,7 +441,7 @@ describe('Label step — the preview gate and the run', () => {
     await user.click(screen.getByRole('button', { name: /Estimate and continue/ }))
     await user.click(await screen.findByRole('button', { name: /Label the whole Dataset Version/ }))
     await screen.findByText('Labeling run')
-    FakeEventSource.instances.at(-1)!.emit('completed', {
+    await emitJobEvent('j1', 'completed', {
       status: 'completed',
       progress: {},
       result: {
@@ -554,7 +536,7 @@ describe('Label step — the preview gate and the run', () => {
     await screen.findByText('Preview', { selector: '[data-slot="card-title"]' })
     await user.click(screen.getByRole('button', { name: /Estimate and continue/ }))
     await user.click(await screen.findByRole('button', { name: /Label the whole Dataset Version/ }))
-    FakeEventSource.instances.at(-1)!.emit('completed', {
+    await emitJobEvent('j1', 'completed', {
       status: 'completed',
       progress: {},
       result: { version_id: 'v2', labeled_rows: 40, failed_count: 0, label_columns: ['is_churn'] },

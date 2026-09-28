@@ -38,6 +38,10 @@ export function mockFetch(
         return json({ detail: `unmocked ${method} ${path}` }, 404)
       }
       const body = await handler()
+      // A handler may return a Response of its own for endpoints that serve
+      // something other than JSON (a Markdown Card, a CSV download). Passing it
+      // through beats encoding a string and having the test decode it.
+      if (body instanceof Response) return body
       return json(body, 200)
     }),
   )
@@ -49,4 +53,9 @@ export function json(body: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+/** A raw text response, for the endpoints that serve Markdown or CSV. */
+export function text(body: string, status = 200, contentType = 'text/plain'): Response {
+  return new Response(body, { status, headers: { 'Content-Type': contentType } })
 }
