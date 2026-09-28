@@ -19,6 +19,21 @@ if (!('ResizeObserver' in globalThis)) {
   })
 }
 
+// jsdom has no pointer capture, and the Radix Slider calls it on pointerdown
+// (`hasPointerCapture` to test, `setPointerCapture` to claim the element).
+// Without these the drag throws three uncaught exceptions: every test still
+// *passes*, but Vitest exits 1, so a broken test command is indistinguishable
+// from a real failure. A no-op is right — nothing here reads a capture.
+for (const method of ['hasPointerCapture', 'releasePointerCapture', 'setPointerCapture']) {
+  if (!(method in Element.prototype)) {
+    Object.defineProperty(Element.prototype, method, {
+      configurable: true,
+      writable: true,
+      value: () => false,
+    })
+  }
+}
+
 // jsdom has no usable matchMedia; motion's useReducedMotion needs one.
 // `matchMediaState.reduce` steers it — see src/test/reduced-motion.ts.
 Object.defineProperty(window, 'matchMedia', {
