@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { TrainingRunsPanel } from '@/components/cards/training-runs'
 import { GenerateStep } from '@/components/generate/generate-step'
 import { LabelStep } from '@/components/label/label-step'
+import { TrainStep } from '@/components/train/train-step'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProjectsPage } from '@/components/projects/projects-page'
 import { DatasetPage } from '@/routes/dataset-page'
@@ -24,7 +24,7 @@ export default function App() {
           <Route path="dataset" element={<DatasetPage />} />
           <Route path="generate" element={<GenerateStep />} />
           <Route path="label" element={<LabelStep />} />
-          <Route path="train" element={<TrainingRunsPanel />} />
+          <Route path="train" element={<TrainStep />} />
         </Route>
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<ProjectsPage />} />

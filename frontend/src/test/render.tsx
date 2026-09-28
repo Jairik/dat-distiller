@@ -20,11 +20,19 @@ export function renderWithProviders(ui: ReactElement, { route = '/' } = {}) {
   )
 }
 
-/** fetch stub: routes by `METHOD path` pattern → JSON factory. */
+/**
+ * fetch stub: routes by `METHOD path` pattern → a factory.
+ *
+ * Records both the requests made (`calls`) and the JSON bodies sent
+ * (`bodies`), because "did the UI send the right thing" is as much a part of a
+ * feature as "did it show the right thing". `lastBody` is the convenience for
+ * the common single-POST case.
+ */
 export function mockFetch(
   handlers: Record<string, () => unknown | Promise<unknown>>,
-): { calls: Array<[string, string]> } {
+): { calls: Array<[string, string]>; bodies: unknown[]; lastBody: () => unknown } {
   const calls: Array<[string, string]> = []
+  const bodies: unknown[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -32,6 +40,13 @@ export function mockFetch(
       const full = String(input).replace(/^\/api/, '') || '/'
       const path = full.split('?')[0]
       calls.push([method, full])
+      if (typeof init?.body === 'string') {
+        try {
+          bodies.push(JSON.parse(init.body))
+        } catch {
+          bodies.push(init.body)
+        }
+      }
       const handler =
         handlers[`${method} ${full}`] ?? handlers[full] ?? handlers[`${method} ${path}`] ?? handlers[path]
       if (!handler) {
@@ -45,7 +60,7 @@ export function mockFetch(
       return json(body, 200)
     }),
   )
-  return { calls }
+  return { calls, bodies, lastBody: () => bodies.at(-1) }
 }
 
 export function json(body: unknown, status = 200): Response {
