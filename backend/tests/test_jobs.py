@@ -231,3 +231,21 @@ def test_job_endpoints_and_sse(client: TestClient) -> None:
     quick = manager.start("resumable-quick")
     wait_for_status(manager, quick.id, "completed")
     assert client.post(f"/api/jobs/{quick.id}/resume").status_code == 409
+
+
+def test_list_jobs_endpoint(client: TestClient) -> None:
+    # the app under test uses its own JobManager; register + start there
+    app_jobs: JobManager = client.app.state.jobs
+    app_jobs.register("t12", lambda ctx: {"ok": True})
+    job_a = app_jobs.start("t12", project_id="pA")
+    job_b = app_jobs.start("t12")
+
+    body = client.get("/api/jobs").json()
+    ids = [job["id"] for job in body["jobs"]]
+    assert {job_a.id, job_b.id} <= set(ids)
+    assert all(j["type"] == "t12" for j in body["jobs"])
+
+    only_a = client.get("/api/jobs", params={"project_id": "pA"}).json()["jobs"]
+    assert [j["id"] for j in only_a] == [job_a.id]
+
+    assert client.get("/api/jobs", params={"project_id": "ghost"}).json()["jobs"] == []

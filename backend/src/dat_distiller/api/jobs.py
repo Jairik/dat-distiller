@@ -18,6 +18,16 @@ def _manager(request: Request) -> JobManager:
     return request.app.state.jobs
 
 
+@router.get("/jobs")
+def list_jobs(request: Request, project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+    jobs = (
+        _manager(request).list_for_project(project_id)
+        if project_id
+        else _manager(request).list_jobs(limit)
+    )
+    return {"jobs": [job.to_dict() for job in jobs]}
+
+
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> dict[str, Any]:
     try:

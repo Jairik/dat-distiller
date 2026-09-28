@@ -8,6 +8,7 @@
 
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { PageIn } from '@/components/motion'
+import { RunningJobsBanner } from '@/components/jobs/running-jobs-banner'
 import { cn } from '@/lib/utils'
 import { useProjects } from '@/lib/projects'
 
@@ -62,6 +63,7 @@ export function AppShell() {
         )}
       </aside>
       <main className="min-w-0 flex-1">
+        <RunningJobsBanner />
         <PageIn key={location.pathname} className="mx-auto w-full max-w-5xl p-6 lg:p-8">
           <Outlet />
         </PageIn>

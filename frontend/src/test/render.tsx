@@ -29,9 +29,11 @@ export function mockFetch(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = (init?.method ?? 'GET').toUpperCase()
-      const path = String(input).replace(/^\/api/, '') || '/'
+      const full = String(input).replace(/^\/api/, '') || '/'
+      const path = full.split('?')[0]
       calls.push([method, path])
-      const handler = handlers[`${method} ${path}`] ?? handlers[path]
+      const handler =
+        handlers[`${method} ${full}`] ?? handlers[full] ?? handlers[`${method} ${path}`] ?? handlers[path]
       if (!handler) {
         return json({ detail: `unmocked ${method} ${path}` }, 404)
       }

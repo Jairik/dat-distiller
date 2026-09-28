@@ -279,6 +279,15 @@ class JobManager:
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
+    def list_jobs(self, limit: int = 100) -> list[Job]:
+        """Most recent jobs across all projects (for the Running Jobs bar)."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
+
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Job:
         return Job(
