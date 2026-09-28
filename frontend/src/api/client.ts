@@ -74,3 +74,10 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 export function apiDelete(path: string): Promise<void> {
   return request<void>(path, { method: 'DELETE' })
 }
+
+/** POST a single file as multipart/form-data (field name: `file`). */
+export function apiUpload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData()
+  form.append('file', file)
+  return request<T>(path, { method: 'POST', body: form })
+}

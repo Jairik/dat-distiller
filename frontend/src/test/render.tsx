@@ -31,7 +31,7 @@ export function mockFetch(
       const method = (init?.method ?? 'GET').toUpperCase()
       const full = String(input).replace(/^\/api/, '') || '/'
       const path = full.split('?')[0]
-      calls.push([method, path])
+      calls.push([method, full])
       const handler =
         handlers[`${method} ${full}`] ?? handlers[full] ?? handlers[`${method} ${path}`] ?? handlers[path]
       if (!handler) {

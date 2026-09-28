@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProjectsPage } from '@/components/projects/projects-page'
+import { DatasetPage } from '@/routes/dataset-page'
 import { ProjectPage } from '@/routes/project-page'
 import { SectionPlaceholder } from '@/routes/placeholder'
 import { SettingsPage } from '@/routes/settings-page'
@@ -18,15 +19,7 @@ export default function App() {
         <Route index element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectPage />}>
           <Route index element={<Navigate to="dataset" replace />} />
-          <Route
-            path="dataset"
-            element={
-              <SectionPlaceholder
-                title="Dataset Versions"
-                blurb="Upload files and browse the immutable Version tree here."
-              />
-            }
-          />
+          <Route path="dataset" element={<DatasetPage />} />
           <Route
             path="generate"
             element={

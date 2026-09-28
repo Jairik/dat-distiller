@@ -6,7 +6,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, apiDelete, apiGet, apiPost } from '@/api/client'
+import { ApiError, apiDelete, apiGet, apiPost, apiUpload } from '@/api/client'
 
 export interface Project {
   id: string
@@ -91,6 +91,22 @@ export function useDeleteProject() {
     mutationFn: (id: string) => apiDelete(`/projects/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
   })
+}
+
+export function useUpload(projectId: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => apiUpload<DatasetVersion>(`/projects/${projectId}/upload`, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['versions', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+  })
+}
+
+/** Direct download link (browser saves the file). */
+export function downloadUrl(versionId: string, format: 'csv' | 'parquet', includeProvenance = false): string {
+  return `/api/dataset-versions/${versionId}/download?format=${format}${includeProvenance ? '&include_provenance=true' : ''}`
 }
 
 /** True when a mutation error is FastAPI's "name already taken" conflict. */
