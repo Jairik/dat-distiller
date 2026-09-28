@@ -13,6 +13,7 @@ dependencies = [
     "python-multipart>=0.0.32",
     "jsonschema>=4.26.0",
     "typesafe-sdk>=0.7.2",
+    "scipy>=1.17.1",
 ]
 
 [project.optional-dependencies]
