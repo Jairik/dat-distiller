@@ -16,6 +16,7 @@ from ..store.paths import AppPaths
 from .checks import router as checks_router
 from .frontend import mount_frontend
 from .jobs import router as jobs_router
+from .providers import router as providers_router
 from .settings import router as settings_router
 from .projects import router as projects_router
 from .uploads import router as uploads_router
@@ -50,5 +51,6 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
     app.include_router(checks_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
+    app.include_router(providers_router, prefix="/api")
     mount_frontend(app)
     return app

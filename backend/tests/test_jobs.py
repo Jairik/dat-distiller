@@ -99,7 +99,7 @@ def test_resumable_job_skips_checkpointed_work(manager: JobManager) -> None:
 
     fail_on.clear()  # transient failure fixed
     resumed = manager.resume(job.id)
-    assert resumed.id == job.id and resumed.status in ("queued", "running")
+    assert resumed.id == job.id  # same row reused; it may already have finished
     completed = wait_for_status(manager, job.id, "completed")
     # resumed run appended only 3 and 4 — no duplicates means 0-2 were skipped
     assert completed.result["processed"] == [0, 1, 2, 3, 4]
@@ -142,9 +142,10 @@ def test_restart_recovery_marks_interrupted_or_failed(isolated_data_dir) -> None
     restarted = JobManager(db)
     assert restarted.get("a").status == "interrupted"
     assert restarted.get("b").status == "failed"
-    # interrupted resumable jobs are resumable
+    # interrupted resumable jobs are resumable (runner is instant: may finish at once)
     restarted.register("resumable", lambda ctx: {}, resumable=True)
-    assert restarted.resume("a").status in ("queued", "running")
+    restarted.resume("a")
+    wait_for_status(restarted, "a", "completed")
 
 
 # -- pool helper ------------------------------------------------------------
