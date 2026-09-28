@@ -41,13 +41,20 @@ class _Marginal:
     # categorical/bool
     categories: list[str] | None = None
     cumulative: np.ndarray | None = None  # cumulative frequencies in (0, 1]
+    #: False when the column held no values at all, so there is no distribution
+    #: to sample from. A column that is entirely missing is not a column with an
+    #: unknown distribution — it is a column with none, and the honest sample is
+    #: missing. Without this the numeric path indexed an empty array and raised
+    #: `IndexError: index -1 is out of bounds`, and the categorical path divided
+    #: by zero on the way there.
+    observed: bool = True
 
     def to_normal(self, values: pd.Series) -> np.ndarray:
         """Map observed values to normal space via midrank u (NaN stays NaN)."""
         out = np.full(len(values), np.nan)
         mask = values.notna().to_numpy()
         sub = values[mask]
-        if len(sub) == 0:
+        if len(sub) == 0 or not self.observed:
             return out
         if self.kind in ("categorical", "bool"):
             cat_index = {c: i for i, c in enumerate(self.categories)}
@@ -63,6 +70,10 @@ class _Marginal:
         return out
 
     def from_normal(self, z: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if not self.observed:
+            # No values were ever seen here, so there is nothing to interpolate
+            # between. Missing is the truth, not a placeholder for a guess.
+            return np.full(len(z), None, dtype=object)
         u = stats.norm.cdf(z)
         if self.kind in ("categorical", "bool"):
             idx = np.searchsorted(self.cumulative, u, side="right")
@@ -120,19 +131,38 @@ class GaussianCopula:
                 continue
             missing = float(series.isna().mean())
             filled = series.dropna()
+            # A column with no values at all has no distribution to fit. It stays
+            # in the output — the user put it there — and samples as missing.
+            observed = len(filled) > 0
             if kind == "bool":
                 cats = sorted(set(filled.astype(str))) or ["False", "True"]
                 counts = filled.astype(str).value_counts()
-                cum = np.cumsum([counts.get(c, 0) for c in cats]) / len(filled)
-                marginal = _Marginal("bool", str(name), missing, categories=cats, cumulative=cum)
+                cum = _cumulative(cats, counts, observed)
+                marginal = _Marginal(
+                    "bool", str(name), missing, categories=cats, cumulative=cum, observed=observed
+                )
             elif kind == "categorical":
                 cats = sorted(set(filled.astype(str)))
                 counts = filled.astype(str).value_counts()
-                cum = np.cumsum([counts.get(c, 0) for c in cats]) / len(filled)
-                marginal = _Marginal("categorical", str(name), missing, categories=cats, cumulative=cum)
+                cum = _cumulative(cats, counts, observed)
+                marginal = _Marginal(
+                    "categorical",
+                    str(name),
+                    missing,
+                    categories=cats,
+                    cumulative=cum,
+                    observed=observed,
+                )
             else:
                 values = marginal_values(kind, filled)
-                marginal = _Marginal(kind, str(name), missing, sorted_values=np.sort(values), dtype=series.dtype)
+                marginal = _Marginal(
+                    kind,
+                    str(name),
+                    missing,
+                    sorted_values=np.sort(values),
+                    dtype=series.dtype,
+                    observed=observed,
+                )
             marginals.append(marginal)
             normal_columns[str(name)] = marginal.to_normal(series)  # NaN-aware
 
@@ -210,6 +240,19 @@ def marginal_values(kind: str, filled: pd.Series) -> np.ndarray:
     if kind == "datetime":
         return pd.to_datetime(filled).astype("int64").to_numpy().astype(float)
     return pd.to_numeric(filled).to_numpy(dtype=float)
+
+
+def _cumulative(cats: list[str], counts: Any, observed: bool) -> np.ndarray:
+    """Cumulative category frequencies in (0, 1], or an empty array if unobserved.
+
+    Dividing by the number of non-missing values when nothing was observed is a
+    division by zero, and the resulting NaNs went on to index an empty category
+    list a sample later. `counts.sum()` is the same denominator and cannot be
+    zero here, because `observed` is what says there was at least one value.
+    """
+    if not observed:
+        return np.array([], dtype="float64")
+    return np.cumsum([counts.get(c, 0) for c in cats]) / float(counts.sum())
 
 
 def _nearest_psd(matrix: np.ndarray) -> np.ndarray:
