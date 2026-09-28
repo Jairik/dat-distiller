@@ -1,8 +1,9 @@
 """Optional extras, and whether this install can actually use them.
 
-torch, TensorFlow and Presidio are declared as optional extras in
-`pyproject.toml` and are deliberately absent from the dev environment. Anything
-that needs one asks here first and degrades with a "not installed" message.
+torch, TensorFlow, Presidio, scikit-learn and LightGBM are declared as optional
+extras in `pyproject.toml` and are deliberately absent from the dev environment.
+Anything that needs one asks here first and degrades with a "not installed"
+message.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ EXTRA_MODULES: dict[str, str] = {
     "torch": "torch",
     "tensorflow": "tensorflow",
     "presidio": "presidio_analyzer",
+    "sklearn": "sklearn",
+    "lightgbm": "lightgbm",
 }
 
 

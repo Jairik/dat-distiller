@@ -59,8 +59,10 @@ def create_app(store: DatasetStore | None = None) -> FastAPI:
 
     register_label_job(app.state.jobs, app)
     from ..training.setup import register_training_job
+    from ..training.train import register_training_run_job
 
     register_training_job(app.state.jobs, app)
+    register_training_run_job(app.state.jobs, app)
     app.include_router(api_router)
     app.include_router(projects_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")

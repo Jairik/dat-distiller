@@ -12,7 +12,7 @@ from dat_distiller import __version__
 from dat_distiller import extras as extras_module
 from dat_distiller.api.app import create_app
 
-EXTRAS = ("torch", "tensorflow", "presidio")
+EXTRAS = ("torch", "tensorflow", "presidio", "sklearn", "lightgbm")
 
 
 @pytest.fixture
@@ -61,4 +61,6 @@ def test_an_extra_flips_to_installed_once_its_module_resolves(
         "torch": True,
         "tensorflow": False,
         "presidio": False,
+        "sklearn": False,
+        "lightgbm": False,
     }
