@@ -78,6 +78,18 @@ export function LabelStep() {
 
   const preview = useLabelPreview()
   const estimate = useLabelEstimate()
+
+  /**
+   * Anything that changes what will be run invalidates both the preview and the
+   * estimate. The estimate is a description of a run, exactly as the preview is,
+   * so it is invalidated by the same call — otherwise a Jev-call estimate
+   * computed for one Dataset Version sits on screen while you run another, and
+   * the button that would refresh it is hidden whenever an estimate exists.
+   */
+  function invalidate() {
+    preview.reset()
+    estimate.reset()
+  }
   const startRun = useStartLabelRun()
   const [jobId, setJobId] = useState<string | null>(null)
   const [labeledVersionId, setLabeledVersionId] = useState<string | null>(null)
@@ -129,13 +141,13 @@ export function LabelStep() {
               versionId={versionId}
               onVersion={() => {
                 setStateColumns([])
-                preview.reset()
+                invalidate()
               }}
               selected={stateColumns}
               outputs={outputs}
               onChange={(next) => {
                 setStateColumns(next)
-                preview.reset()
+                invalidate()
               }}
             />
           )}
@@ -144,7 +156,7 @@ export function LabelStep() {
             questions={questions}
             onChange={(next) => {
               setQuestions(next)
-              preview.reset()
+              invalidate()
             }}
           />
         </CardContent>
@@ -213,7 +225,7 @@ export function LabelStep() {
           }}
           onAgain={() => {
             setJobId(null)
-            preview.reset()
+            invalidate()
           }}
           onOpen={(id) => navigate(`/projects/${project.id}/dataset?v=${id}`)}
         />

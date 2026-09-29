@@ -84,6 +84,24 @@ export function GenerateStep() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [ranVersionId, setRanVersionId] = useState<string | null>(null)
 
+  /**
+   * Anything that changes what will be run invalidates both the preview and the
+   * estimate.
+   *
+   * They used to be separate concerns handled by whoever remembered: only
+   * `description`, `source`, `sample` and `specs` reset the preview, and the
+   * estimate was never reset at all. So the panel could answer "what will this
+   * cost me" for a different Generation Mode, row count, Provider and Balance
+   * Target than the one about to be sent, and the "Estimate and continue"
+   * button that would refresh it is hidden whenever an estimate exists. The
+   * estimate describes a *run*, exactly as the preview does, so it is
+   * invalidated the same way and by the same call.
+   */
+  function invalidate() {
+    preview.reset()
+    estimate.reset()
+  }
+
   const specErrors = source === 'specs' ? localSpecErrors(specs) : []
   const body: GenerationBody | null = useMemo(() => {
     if (description.trim().length < 3) return null
@@ -149,7 +167,7 @@ export function GenerateStep() {
               placeholder="Support tickets for a SaaS help desk, with a topic, a sentiment and a resolution time."
               onChange={(event) => {
                 setDescription(event.target.value)
-                preview.reset()
+                invalidate()
               }}
             />
           </div>
@@ -158,7 +176,7 @@ export function GenerateStep() {
             source={source}
             onChange={(next) => {
               setSource(next)
-              preview.reset()
+              invalidate()
             }}
           />
 
@@ -168,7 +186,7 @@ export function GenerateStep() {
               value={sampleVersionId}
               onChange={(id) => {
                 setSampleVersionId(id)
-                preview.reset()
+                invalidate()
               }}
             />
           ) : (
@@ -178,12 +196,12 @@ export function GenerateStep() {
               description={description}
               onChange={(next) => {
                 setSpecs(next)
-                preview.reset()
+                invalidate()
               }}
             />
           )}
 
-          <ModePicker value={mode} onChange={setMode} />
+          <ModePicker value={mode} onChange={(next) => { setMode(next); invalidate() }} />
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
@@ -194,7 +212,7 @@ export function GenerateStep() {
                 min={1}
                 max={100000}
                 value={count}
-                onChange={(event) => setCount(Math.max(1, Number(event.target.value) || 1))}
+                onChange={(event) => { setCount(Math.max(1, Number(event.target.value) || 1)); invalidate() }}
               />
               <p className="text-xs text-muted-foreground">
                 {fmtNumber(count)} rows. A soft limit raises a Check, it never blocks.
@@ -207,7 +225,7 @@ export function GenerateStep() {
                 type="number"
                 placeholder="leave blank to pick one"
                 value={seed}
-                onChange={(event) => setSeed(event.target.value)}
+                onChange={(event) => { setSeed(event.target.value); invalidate() }}
               />
               <p className="text-xs text-muted-foreground">
                 The same seed reproduces the same rows.
@@ -215,7 +233,7 @@ export function GenerateStep() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="generate-provider">Provider (optional)</Label>
-              <ProviderPicker value={provider} onChange={setProvider} />
+              <ProviderPicker value={provider} onChange={(next) => { setProvider(next); invalidate() }} />
               <p className="text-xs text-muted-foreground">
                 Defaults to the one chosen in Settings.
               </p>
@@ -225,8 +243,8 @@ export function GenerateStep() {
           <BalanceFields
             column={balanceColumn}
             share={balanceShare}
-            onColumn={setBalanceColumn}
-            onShare={setBalanceShare}
+            onColumn={(next) => { setBalanceColumn(next); invalidate() }}
+            onShare={(next) => { setBalanceShare(next); invalidate() }}
           />
         </CardContent>
         <CardFooter className="flex flex-wrap items-center gap-3">

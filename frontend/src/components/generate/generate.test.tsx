@@ -174,6 +174,45 @@ describe('Generate step — the preview gate', () => {
     expect(screen.getByText('Preview a few rows to unlock the full run.')).toBeInTheDocument()
   })
 
+  it('an estimate is invalidated by anything that changes the run it describes', async () => {
+    // The panel exists to answer "what will this cost me" *before* the run spends
+    // money. It used to survive every change to the Generation Mode, row count,
+    // Provider, Balance Target and seed, and the button that would refresh it is
+    // hidden whenever an estimate exists — so there was no way back.
+    const user = userEvent.setup()
+    const { calls } = mockFetch({
+      ...baseHandlers,
+      'POST /generate/preview': () => PREVIEW,
+      'POST /generate/estimate': () => ESTIMATE,
+    })
+    renderStep()
+    await describeIt(user)
+    await user.selectOptions(await screen.findByLabelText('Sample Dataset Version'), 'v1')
+    await user.click(screen.getByRole('button', { name: /Preview 5 rows/ }))
+    await user.click(await screen.findByRole('button', { name: /Estimate and continue/ }))
+    expect(await screen.findByText(/4 Provider call\(s\)/)).toBeInTheDocument()
+
+    // Switching the Generation Mode changes the run, so the estimate is stale —
+    // and so is the preview, since neither described the run any more.
+    await user.click(screen.getByRole('radio', { name: /llm/ }))
+    await waitFor(() => expect(screen.queryByText(/Provider call\(s\)/)).not.toBeInTheDocument())
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    // Both can be asked again, rather than being stuck behind a hidden button.
+    await user.click(screen.getByRole('button', { name: /Preview 5 rows/ }))
+    await user.click(await screen.findByRole('button', { name: /Estimate and continue/ }))
+    expect(await screen.findByText(/4 Provider call\(s\)/)).toBeInTheDocument()
+
+    // The row count does the same.
+    const estimates = calls.filter(([m, p]) => m === 'POST' && p === '/generate/estimate').length
+    await user.clear(screen.getByLabelText('Rows'))
+    await user.type(screen.getByLabelText('Rows'), '900')
+    await waitFor(() => expect(screen.queryByText(/Provider call\(s\)/)).not.toBeInTheDocument())
+    expect(
+      calls.filter(([m, p]) => m === 'POST' && p === '/generate/estimate').length,
+    ).toBe(estimates)
+  })
+
   it('surfaces a preview failure without unlocking the run', async () => {
     const user = userEvent.setup()
     mockFetch({

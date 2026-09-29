@@ -407,6 +407,35 @@ describe('Label step — the preview gate and the run', () => {
     await waitFor(() => expect(calls).toContainEqual(['POST', '/label/run']))
   })
 
+  it('the Jev-call estimate is invalidated by a change to the run it describes', async () => {
+    // Same shape as the Generate step: the estimate describes a run, so a change
+    // to the questions invalidates it. It used to survive, leaving a count for
+    // one set of questions on screen while another was about to be run.
+    const user = userEvent.setup()
+    const { calls } = mockFetch({
+      ...baseHandlers,
+      'POST /label/preview': () => ({ state_columns: ['age', 'plan'], rows: [PREVIEW_ROW] }),
+      'POST /label/estimate': () => ({ rows: 40, estimated_jev_calls: 40, uses_jev: true }),
+    })
+    renderStep()
+    await buildNoul(user)
+    await user.click(screen.getByRole('button', { name: /Preview 5 rows/ }))
+    await screen.findByText('Preview', { selector: '[data-slot="card-title"]' })
+    await user.click(screen.getByRole('button', { name: /Estimate and continue/ }))
+    expect(await screen.findByText(/40 Jev call\(s\), one per row/)).toBeInTheDocument()
+
+    // Editing a Jev Question changes the run.
+    const estimates = calls.filter(([m, p]) => m === 'POST' && p === '/label/estimate').length
+    const instructions = screen.getAllByLabelText(/instructions|What should Jev/i)[0]
+    await user.type(instructions, ' and be brief')
+    await waitFor(() =>
+      expect(screen.queryByText(/Jev call\(s\), one per row/)).not.toBeInTheDocument(),
+    )
+    expect(
+      calls.filter(([m, p]) => m === 'POST' && p === '/label/estimate').length,
+    ).toBe(estimates)
+  })
+
   it('a failed preview does not unlock the run', async () => {
     const user = userEvent.setup()
     mockFetch({
