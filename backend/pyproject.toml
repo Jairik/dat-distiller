@@ -14,6 +14,12 @@ dependencies = [
     "jsonschema>=4.26.0",
     "typesafe-sdk>=0.7.2",
     "scipy>=1.17.1",
+    # `api.providers` and `providers.openrouter` import this at module scope, so
+    # it is a runtime dependency, not a test-only one. It was declared under
+    # `dev`, which `uv run pytest` installs automatically — so the suite was
+    # green everywhere this repo is developed in, and a plain `pip install` of
+    # the package produced an app that could not import its own Providers.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -54,7 +60,6 @@ dat-distiller = "dat_distiller.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
 ]
 
 [build-system]

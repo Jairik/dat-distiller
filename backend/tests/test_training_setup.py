@@ -1185,6 +1185,9 @@ def test_the_persisted_pipeline_on_a_run_is_the_corrected_one(client) -> None:
     persisted on the Training Run and written into the Model Bundle, so a
     downstream consumer inherited them. This pins the persisted spec.
     """
+    # This one really trains, so it needs the `sklearn` extra. The rest of this
+    # file is numpy + pandas, and a bare install must stay green.
+    pytest.importorskip("sklearn")
     import time as _time
 
     frame, _days = dated_frame()

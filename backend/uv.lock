@@ -399,6 +399,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -440,13 +441,13 @@ torch = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "lightgbm", marker = "extra == 'all'", specifier = ">=4.3" },
     { name = "lightgbm", marker = "extra == 'lightgbm'", specifier = ">=4.3" },
@@ -473,10 +474,7 @@ requires-dist = [
 provides-extras = ["torch", "tensorflow", "presidio", "sklearn", "lightgbm", "all"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pytest", specifier = ">=8" },
-]
+dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "fastapi"
