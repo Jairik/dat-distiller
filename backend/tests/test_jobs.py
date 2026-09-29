@@ -120,6 +120,84 @@ def test_resume_rejects_unresumable_and_completed(manager: JobManager) -> None:
         manager.resume(done.id)
 
 
+def test_resume_refuses_while_the_previous_runner_is_still_alive(
+    manager: JobManager,
+) -> None:
+    """Cancelling does not stop the worker, so a resume must not race it.
+
+    `cancel` writes the terminal status immediately; the runner only stops at its
+    next check of `ctx.cancelled`. Between the two the row says `cancelled` — a
+    resumable status — while a thread is still working on it, so `resume` used to
+    accept it and launch a *second* runner against the same job id. The work then
+    happened twice (a Labeling Run can create two Labeled Dataset Versions), and
+    whichever runner finished first wrote the terminal status, discarding the
+    other's result.
+    """
+    invocations: list[str] = []
+    release = threading.Event()
+
+    def slow(ctx):
+        invocations.append(threading.current_thread().name)
+        # Hold the worker alive so the cancel lands mid-run, as it does for any
+        # job that is not instant.
+        release.wait(timeout=5)
+        return {"attempt": len(invocations)}
+
+    manager.register("slow", slow, resumable=True)
+    job = manager.start("slow")
+    wait_for_status(manager, job.id, "running")
+    manager.cancel(job.id)
+    assert manager.get(job.id).status == "cancelled"
+
+    with pytest.raises(JobStateError, match="still winding down"):
+        manager.resume(job.id)
+    assert len(invocations) == 1, "resume must not start a second runner"
+
+    # Once the old runner has actually stopped, the resume is allowed — so this
+    # is a refusal with a way forward, not a dead end.
+    release.set()
+    deadline = time.time() + 5
+    while time.time() < deadline and manager._threads[job.id].is_alive():
+        time.sleep(0.01)
+    resumed = manager.resume(job.id)
+    assert resumed.status in ("queued", "running", "completed")
+    deadline = time.time() + 5
+    while time.time() < deadline and len(invocations) < 2:
+        time.sleep(0.01)
+    assert len(invocations) == 2, "the resume should run once the first runner is gone"
+
+
+def test_a_cancelled_job_resumes_normally_once_its_runner_has_stopped(
+    manager: JobManager,
+) -> None:
+    """The guard must not make cancellation permanent.
+
+    A run the user interrupted and comes back to is the ordinary case, and it has
+    to work. The runner here notices the cancel and returns, so by the time the
+    resume arrives there is no thread left to race — which is exactly the window
+    the guard is for, seen from the other side.
+    """
+    attempts: list[int] = []
+
+    def interruptible(ctx):
+        attempts.append(1)
+        while not ctx.cancelled:
+            time.sleep(0.01)
+        return {"stopped": True}
+
+    manager.register("interruptible", interruptible, resumable=True)
+    job = manager.start("interruptible")
+    wait_for_status(manager, job.id, "running")
+    manager.cancel(job.id)
+    wait_for_status(manager, job.id, "cancelled")
+    deadline = time.time() + 5
+    while time.time() < deadline and manager._threads[job.id].is_alive():
+        time.sleep(0.01)
+    assert not manager._threads[job.id].is_alive()
+
+    assert manager.resume(job.id).status in ("queued", "running", "completed")
+
+
 def test_restart_recovery_marks_interrupted_or_failed(isolated_data_dir) -> None:
     from dat_distiller.store.db import Database
     from dat_distiller.store.paths import AppPaths

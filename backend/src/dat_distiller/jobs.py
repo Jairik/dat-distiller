@@ -182,6 +182,7 @@ class JobManager:
         runner = self._runners.get(job.type, (None, False))[0]
         if runner is None:
             raise JobStateError(f"job type {job.type!r} is not registered")
+        self._refuse_if_still_running(job_id)
         with self.db.connect() as conn:
             conn.execute(
                 "UPDATE jobs SET status = 'queued', error = NULL, finished_at = NULL WHERE id = ?",
@@ -189,6 +190,27 @@ class JobManager:
             )
         self._launch(job_id, runner)
         return self.get(job_id)
+
+    def _refuse_if_still_running(self, job_id: str) -> None:
+        """Refuse to resume a job whose previous runner has not stopped yet.
+
+        `cancel` writes the terminal status straight away, but the worker only
+        stops at its next check of ``ctx.cancelled`` — so between the two there is
+        a window where the row says `cancelled` and a thread is very much still
+        working on it. `cancelled` is a resumable status, so `resume` used to
+        accept that row and launch a *second* runner against the same job id.
+
+        Two runners means the work happens twice — a Labeling Run can create two
+        Labeled Dataset Versions — and then the first one to finish writes the
+        terminal status, discarding the other's result. This check belongs here
+        rather than in a route, so it holds for every caller.
+        """
+        thread = self._threads.get(job_id)
+        if thread is not None and thread.is_alive():
+            raise JobStateError(
+                "this job is still winding down after being cancelled; wait a moment and "
+                "resume it again"
+            )
 
     def cancel(self, job_id: str) -> Job:
         """Mark cancelled and signal the worker; cooperative runners stop fast."""
