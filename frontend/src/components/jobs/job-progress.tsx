@@ -37,7 +37,7 @@ export function JobProgress({
   onStatus?: (status: string) => void
 }) {
   const queryClient = useQueryClient()
-  const snapshot = useJobSnapshot(jobId)
+  const { snapshot, error, retry } = useJobSnapshot(jobId)
   const cancel = useMutation({
     mutationFn: () => apiPost<unknown>(`/jobs/${jobId}/cancel`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['job', jobId] }),
@@ -56,6 +56,21 @@ export function JobProgress({
   }, [snapshot?.status, onStatus])
 
   if (!snapshot) {
+    // The job's state is unknown, which is not the same as "still starting".
+    // Saying "Waiting for …" here told someone to leave the page and come back
+    // to a run that may not exist — a 500 on the job detail, a pruned row, or a
+    // server that went away mid-run all looked identical, and identically forever.
+    if (error) {
+      return (
+        <div role="alert" className="flex flex-col items-start gap-2 text-sm text-destructive">
+          <p>{`This ${label.toLowerCase()} could not be read, so its state is unknown.`}</p>
+          <p className="text-xs text-muted-foreground">{error.message}</p>
+          <Button size="sm" variant="outline" onClick={retry}>
+            Try again
+          </Button>
+        </div>
+      )
+    }
     return <p className="text-sm text-muted-foreground">Waiting for {label}…</p>
   }
   const percent = jobPercent(snapshot.progress)

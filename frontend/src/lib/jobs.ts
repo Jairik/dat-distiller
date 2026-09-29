@@ -73,11 +73,21 @@ export function useJobSnapshot(jobId: string | null) {
     queryKey: ['job', jobId],
     queryFn: () => apiGet<JobDto>(`/jobs/${jobId}`),
     enabled: Boolean(jobId),
+    // No automatic retries: one failed read is reported straight away rather
+    // than after a backoff the person waits through to learn the same thing.
+    // Recovery is the `refetchInterval` below, which backs off and eventually
+    // gives up so a job that cannot be read is not requested forever.
+    retry: false,
     refetchInterval: (query) => {
       if (!jobId) return false
       const status = snap?.status ?? query.state.data?.status
       if (status && TERMINAL_STATUSES.has(status)) return false
-      return sseDown || query.state.status === 'error' ? 1000 : false
+      if (sseDown) return 1000
+      if (query.state.status === 'error') {
+        const failures = query.state.errorUpdateCount ?? 0
+        return failures >= 4 ? false : 1000 * 2 ** Math.min(failures, 3)
+      }
+      return false
     },
   })
 
@@ -117,5 +127,13 @@ export function useJobSnapshot(jobId: string | null) {
         error: detail.data.error,
       }
     : null
-  return snap ?? fallback
+  // With no snapshot *and* a failed read, the job's state is unknown — not
+  // "still starting". Returning only the snapshot made that distinction
+  // impossible, so the caller rendered "Waiting for …" forever with no error and
+  // no way to tell a run that is happening from one that died.
+  return {
+    snapshot: snap ?? fallback,
+    error: snap ? null : (detail.error ?? null),
+    retry: () => void detail.refetch(),
+  }
 }

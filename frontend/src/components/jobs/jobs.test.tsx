@@ -80,6 +80,38 @@ describe('JobProgress', () => {
     expect(await screen.findByText('30%')).toBeInTheDocument()
     expect(es.closed).toBe(true)
   })
+
+  it('says the state is unknown when the job cannot be read, instead of waiting forever', async () => {
+    // A 500 on the job detail, a pruned job row, or a server that went away
+    // mid-run: all of these used to render "Waiting for …" with no error and no
+    // way to tell, which told someone to leave the page and come back to a run
+    // that may not exist.
+    mockFetch({ 'GET /jobs/j1': () => json({ detail: 'job store is locked' }, 500) })
+    renderWithProviders(<JobProgress jobId="j1" label="Generation" />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('could not be read')
+    expect(alert).toHaveTextContent('unknown')
+    // The server's own reason, not a bare status code.
+    expect(alert).toHaveTextContent('job store is locked')
+    expect(screen.queryByText(/Waiting for/)).not.toBeInTheDocument()
+  })
+
+  it('offers a retry, and recovers when the job can be read again', async () => {
+    let fail = true
+    mockFetch({
+      'GET /jobs/j1': () =>
+        fail ? json({ detail: 'job store is locked' }, 500) : { ...jobDto, progress: { done: 5, total: 10 } },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<JobProgress jobId="j1" label="Generation" />)
+    await screen.findByRole('alert')
+
+    fail = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('50%')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 })
 
 describe('JobButton', () => {
