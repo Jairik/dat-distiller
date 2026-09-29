@@ -141,6 +141,60 @@ describe('Dataset Versions panel', () => {
     expect(previewHeading).toBeInTheDocument()
   })
 
+  it('accepts the same file twice, and says when it drops the rest', async () => {
+    // The input's value was never reset after a successful upload, so choosing
+    // the same path again fired no change event and nothing happened at all.
+    // Re-uploading a corrected CSV that happens to sit where the last one did is
+    // a very ordinary correction loop.
+    let uploads = 0
+    mockFetch({
+      ...baseHandlers,
+      'POST /projects/p1/upload': () => {
+        uploads += 1
+        return version(`v${4 + uploads}`, 4 + uploads, 'uploaded', null, { uploaded: uploads })
+      },
+    })
+    renderWithProviders(<App />, { route: '/projects/p1/dataset?v=v1' })
+    await screen.findByLabelText('Upload data file')
+    const input = screen.getByLabelText('Upload data file') as HTMLInputElement
+
+    // A browser refuses to fire `change` when the chosen path is unchanged, and
+    // jsdom refuses to put a non-empty value on a file input at all — so the
+    // symptom itself cannot be reproduced here. What can be checked is the
+    // mechanism: the component clears the input on success, which is what lets
+    // the same path be chosen again. A spy, because the real setter is a no-op.
+    const cleared: string[] = []
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get: () => 'C:\\fakepath\\people.csv',
+      set: (next: string) => cleared.push(next),
+    })
+
+    const file = new File(['age,plan\n31,basic'], 'people.csv', { type: 'text/csv' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(uploads).toBe(1))
+    await waitFor(() => expect(cleared).toEqual(['']))
+  })
+
+  it('says which of several dropped files it ignored', async () => {
+    mockFetch({
+      ...baseHandlers,
+      'POST /projects/p1/upload': () => version('v9', 9, 'uploaded', null, { uploaded: 1 }),
+    })
+    renderWithProviders(<App />, { route: '/projects/p1/dataset?v=v1' })
+    await screen.findByLabelText('Upload data file')
+    const input = screen.getByLabelText('Upload data file')
+    const files = [
+      new File(['a'], 'one.csv', { type: 'text/csv' }),
+      new File(['b'], 'two.csv', { type: 'text/csv' }),
+      new File(['c'], 'three.csv', { type: 'text/csv' }),
+    ]
+    fireEvent.change(input, { target: { files } })
+    // Silently taking files[0] and discarding the rest read as "uploaded".
+    expect(await screen.findByText(/2 other files were ignored/)).toBeInTheDocument()
+  })
+
   it('shows upload errors inline', async () => {
     vi.stubGlobal(
       'fetch',
@@ -164,7 +218,7 @@ describe('Dataset Versions panel', () => {
       }),
     )
     renderWithProviders(<App />, { route: '/projects/p1/dataset?v=v1' })
-    await screen.findByRole('button', { name: /v1/ })
+    await screen.findByLabelText('Upload data file')
     const input = screen.getByLabelText('Upload data file')
     fireEvent.change(input, { target: { files: [new File(['MZ'], 'virus.exe')] } })
     expect(await screen.findByRole('alert')).toHaveTextContent('unsupported file type')

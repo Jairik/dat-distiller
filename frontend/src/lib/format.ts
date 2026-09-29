@@ -22,7 +22,11 @@ export function fmtBytes(n: number): string {
 
 export function fmtNumber(n: number): string {
   if (!Number.isFinite(n)) return '—'
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: n % 1 === 0 ? 0 : 2 }).format(n)
+  const maximumFractionDigits = n % 1 === 0 ? 0 : 2
+  // `Intl` renders -0.004 at this precision as "-0", which reads as a real
+  // number rather than as a rounded-away one.
+  if (Math.abs(n) < 0.5 / 10 ** maximumFractionDigits) return '0'
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits }).format(n)
 }
 
 /** "just now", "5m ago", "3h ago", "Apr 5", or "Apr 5 2024" for far dates. */
@@ -30,7 +34,9 @@ export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return '—'
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return '—'
-  const seconds = (Date.now() - then) / 1000
+  // A clock skew or a server timestamp a few seconds ahead is not "45 seconds
+  // ago", it is not measurable from here; clamping says what we can honestly say.
+  const seconds = Math.max(0, (Date.now() - then) / 1000)
   if (seconds < 45) return 'just now'
   if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
   if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`

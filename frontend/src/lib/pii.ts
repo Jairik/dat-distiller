@@ -71,7 +71,7 @@ export function useApplyPiiActions(versionId: string | undefined) {
       // a scan would find, so everything PII-related is re-read
       queryClient.invalidateQueries({ queryKey: ['pii'] })
       queryClient.invalidateQueries({ queryKey: ['checks'] })
-      queryClient.invalidateQueries({ queryKey: ['dataset_versions'] })
+      queryClient.invalidateQueries({ queryKey: ['versions'] })
     },
   })
 }

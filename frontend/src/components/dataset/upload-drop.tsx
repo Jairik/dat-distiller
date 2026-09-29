@@ -17,12 +17,21 @@ export function UploadDrop({
   const upload = useUpload(projectId)
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [ignored, setIgnored] = useState(0)
 
   const handleFiles = (files: FileList | null) => {
     const file = files?.[0]
     if (!file) return
+    setIgnored(files.length - 1)
     upload.mutate(file, {
-      onSuccess: (version) => onUploaded?.(version.id),
+      onSuccess: (version) => {
+        // Clear the input so choosing the *same* path again fires a change
+        // event. Re-uploading a corrected file that happens to sit where the
+        // last one did is a very ordinary correction loop, and without this it
+        // did nothing at all, silently.
+        if (inputRef.current) inputRef.current.value = ''
+        onUploaded?.(version.id)
+      },
     })
   }
 
@@ -63,6 +72,11 @@ export function UploadDrop({
         aria-label="Upload data file"
         onChange={(e) => handleFiles(e.target.files)}
       />
+      {ignored > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {`Only the first file was uploaded; ${ignored} other file${ignored === 1 ? ' was' : 's were'} ignored.`}
+        </p>
+      )}
       {upload.isError && (
         <p role="alert" className="text-sm text-destructive">
           {(upload.error as Error).message}

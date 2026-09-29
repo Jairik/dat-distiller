@@ -101,7 +101,7 @@ export function useApplyReview(versionId: string | undefined) {
     onSuccess: (result) => {
       // a new Dataset Version now exists: the history panel, the queue and the
       // status all have to re-read
-      queryClient.invalidateQueries({ queryKey: ['dataset_versions'] })
+      queryClient.invalidateQueries({ queryKey: ['versions'] })
       queryClient.invalidateQueries({ queryKey: ['review-queue'] })
       queryClient.invalidateQueries({ queryKey: ['review-status'] })
       queryClient.invalidateQueries({ queryKey: ['checks'] })

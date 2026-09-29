@@ -161,8 +161,9 @@ export function TrainStep() {
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-sm font-medium">Target</legend>
                 <p className="text-xs text-muted-foreground">
-                  The Label Column to predict. Its values decide the Task Type — and the Task Type
-                  decides which Models can be trained at all.
+                  The column to predict — a Label Column added by Labeling, or any other column in
+                  this version. Its values decide the Task Type, and the Task Type decides which
+                  Models can be trained at all.
                 </p>
                 {labelFamilies.length === 0 ? (
                   <p className="text-sm text-muted-foreground">

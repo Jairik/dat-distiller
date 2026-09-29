@@ -60,9 +60,12 @@ export function useProject(id: string | undefined) {
   })
 }
 
+/** The cache key for one Project's Dataset Versions. */
+export const versionsKey = (projectId: string) => ['versions', projectId] as const
+
 export function useVersions(id: string | undefined) {
   return useQuery({
-    queryKey: ['versions', id],
+    queryKey: versionsKey(id ?? ''),
     queryFn: () => apiGet<DatasetVersion[]>(`/projects/${id}/dataset_versions`),
     enabled: Boolean(id),
   })

@@ -203,7 +203,7 @@ export function useStartRun() {
       apiPost<{ id: string }>('/generate/run', body).then((r) => r.id),
     onSuccess: () => {
       // a new Dataset Version is about to appear in the tree
-      queryClient.invalidateQueries({ queryKey: ['dataset_versions'] })
+      queryClient.invalidateQueries({ queryKey: ['versions'] })
     },
   })
 }
