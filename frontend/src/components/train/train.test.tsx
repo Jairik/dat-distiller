@@ -365,6 +365,69 @@ describe('Train step — the plan is a gate', () => {
   })
 })
 
+describe('Train step — the Task Type outlives the plan', () => {
+  it('keeps the Task Type when the ranking metric changes', async () => {
+    // The Task Type is a property of the Target column, so it does not change
+    // when the ranking metric does. It used to live only inside the plan, and
+    // changing the metric threw the plan away — so the "Rank by" select
+    // disappeared the instant you set it, and the Model list widened to every
+    // Task Type's Models, letting a regression-only Model be ticked against a
+    // classification Target with nothing objecting.
+    const user = userEvent.setup()
+    mockFetch({ ...baseHandlers, 'POST /train/plan': () => PLAN })
+    await toThePlan(user)
+    const picker = await screen.findByLabelText('Rank by', {}, { timeout: 5000 })
+
+    const offered = () =>
+      screen
+        .queryAllByRole('checkbox')
+        .map((box) => box.getAttribute('id'))
+        .filter((id): id is string => Boolean(id?.startsWith('model-')))
+    const before = offered()
+    await user.selectOptions(picker, 'roc_auc')
+    await waitFor(() => expect(screen.queryByTestId('train-plan')).not.toBeInTheDocument())
+
+    // Still the same Task Type's UI: the picker is there and the Model list has
+    // not grown to include another Task Type's Models.
+    expect(screen.getByLabelText('Rank by')).toBeInTheDocument()
+    expect(screen.getByLabelText('Rank by')).toHaveValue('roc_auc')
+    expect(offered()).toEqual(before)
+    // And no Model from another Task Type crept in.
+    expect(offered().some((id) => id === 'model-ridge')).toBe(false)
+  })
+})
+
+describe('Train step — choosing the Dataset Version', () => {
+  it('works on the version that was chosen', async () => {
+    // The select's handler used to ignore `event.target.value`: it reset the
+    // form and left the box showing the old version, so the only visible effect
+    // of choosing one was that the Target, the chosen Models and the plan
+    // vanished. A Project with several Dataset Versions could not be trained on
+    // anything but the deep-linked or latest one without editing the URL — which
+    // is also why the e2e suite never exercised this control.
+    const user = userEvent.setup()
+    const V2 = { ...V1, id: 'v2', number: 2, origin: 'labeled' }
+    mockFetch({
+      ...baseHandlers,
+      'GET /projects/p1/dataset_versions': () => [V1, V2],
+      'GET /dataset-versions/v2/preview': () => ({
+        ...baseHandlers['GET /dataset-versions/v1/preview'](),
+        version_id: 'v2',
+      }),
+    })
+    renderStep()
+    const select = await screen.findByLabelText('Dataset Version')
+    expect(select).toHaveValue('v1')
+
+    await user.selectOptions(select, 'v2')
+
+    // The box shows what was chosen, rather than snapping back to the old value.
+    await waitFor(() => expect(select).toHaveValue('v2'))
+    // And the Target is cleared, because it has to be read from the new version.
+    expect(screen.queryByLabelText('is_churn', { selector: '#target-is_churn' })).not.toBeChecked()
+  })
+})
+
 describe('Train step — the Sensitive Attribute', () => {
   it('offers one and explains that it is held out by default', async () => {
     const user = userEvent.setup()

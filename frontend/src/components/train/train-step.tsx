@@ -56,7 +56,7 @@ import { useProjectContext } from '@/routes/project-page'
 export function TrainStep() {
   const { project, versions } = useProjectContext()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
 
   const versionId = params.get('version') ?? params.get('v') ?? versions.at(-1)?.id ?? ''
 
@@ -67,6 +67,18 @@ export function TrainStep() {
   const [primary, setPrimary] = useState<string>('')
   const [tune, setTune] = useState(false)
   const [plan, setPlan] = useState<TrainPlan | null>(null)
+  /**
+   * The Task Type, remembered across the invalidations of the plan it came from.
+   *
+   * The Task Type is a property of the Target column, so it does not change when
+   * the Sensitive Attribute, the excluded features, the chosen Models, the
+   * ranking metric or the tuning flag change — but it used to live only inside
+   * `plan`, and every one of those edits threw the plan away. Two consequences,
+   * both bad: the "Rank by" select disappeared the instant you set it, and the
+   * Model list widened to every Task Type's Models, so a regression-only Model
+   * could be ticked against a classification Target with nothing objecting.
+   */
+  const [plannedTaskType, setPlannedTaskType] = useState<string | undefined>(undefined)
   const [jobId, setJobId] = useState<string | null>(null)
   const [settledRun, setSettledRun] = useState<TrainingRun | null>(null)
 
@@ -78,7 +90,7 @@ export function TrainStep() {
   // chosen we cannot say which Models apply, so we do not pretend to
   const columns = useColumns(versionId)
   const labelFamilies = useLabelFamilies(columns)
-  const taskType = plan?.task_type
+  const taskType = plan?.task_type ?? plannedTaskType
   const { usable, unavailable } = modelsForTaskType(models.data?.models ?? [], taskType)
   const metrics = useMetrics(taskType)
 
@@ -123,11 +135,19 @@ export function TrainStep() {
                   id="train-version"
                   className={SELECT_CLASS}
                   value={versionId}
-                  onChange={() => {
+                  onChange={(event) => {
+                    // The version lives in the URL, so it has to be written
+                    // there. This handler used to ignore `event.target.value`
+                    // entirely: it reset the form and left the select showing
+                    // the old version, so the only visible effect of choosing
+                    // one was that the Target, the chosen Models and the plan
+                    // vanished.
+                    setParams({ version: event.target.value }, { replace: true })
                     setTarget(null)
                     setChosen([])
                     setPlan(null)
                     setJobId(null)
+                    setPlannedTaskType(undefined)
                   }}
                 >
                   {versions.map((v) => (
@@ -163,6 +183,8 @@ export function TrainStep() {
                             setChosen([])
                             setPlan(null)
                             setPrimary('')
+                            // A different Target is a different Task Type.
+                            setPlannedTaskType(undefined)
                           }}
                         />
                         <Label htmlFor={`target-${family}`} className="font-mono font-normal">
@@ -245,7 +267,13 @@ export function TrainStep() {
           <Button
             disabled={!body || planCall.isPending}
             onClick={() => {
-              if (body) planCall.mutate(body, { onSuccess: (p) => setPlan(p) })
+              if (body)
+                planCall.mutate(body, {
+                  onSuccess: (p) => {
+                    setPlan(p)
+                    setPlannedTaskType(p.task_type)
+                  },
+                })
             }}
           >
             {planCall.isPending ? 'Planning…' : 'See the plan'}
