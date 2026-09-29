@@ -6,7 +6,11 @@ __pycache__/
 backend/.pytest_cache/
 
 # Node / frontend build
-node_modules/
+# No trailing slash on node_modules: a symlinked `node_modules` (how a git
+# worktree shares one install with the main checkout) is a symlink to git, not a
+# directory, and `node_modules/` does not match it. Committing one leaves a
+# broken absolute path in the tree on every other machine.
+node_modules
 dist/
 frontend/dist/
 

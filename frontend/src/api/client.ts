@@ -26,6 +26,29 @@ export class ApiError extends Error {
 
 const API_BASE = '/api'
 
+/**
+ * FastAPI's validation errors, as one sentence.
+ *
+ * A 422 body is a list of `{loc, msg, type}`. The `msg`s are the field-level
+ * reasons FastAPI goes to real trouble to produce, and they were being captured
+ * onto `ApiError.detail` and then thrown away — so every validation failure
+ * reached the person as "Request failed with status 422". The full structure
+ * stays on `detail` for callers that want it; this is only the message.
+ */
+function describeValidationDetail(detail: unknown): string | null {
+  if (!Array.isArray(detail) || detail.length === 0) return null
+  const parts: string[] = []
+  for (const entry of detail) {
+    if (entry === null || typeof entry !== 'object') return null
+    const { loc, msg } = entry as { loc?: unknown; msg?: unknown }
+    if (typeof msg !== 'string' || msg.length === 0) return null
+    // `loc` starts with ('body'|'query'|'path'), which says nothing to a reader.
+    const field = Array.isArray(loc) ? loc.slice(1).map(String).join('.') : ''
+    parts.push(field ? `${field}: ${msg}` : msg)
+  }
+  return parts.join('; ') || null
+}
+
 async function toApiError(response: Response): Promise<ApiError> {
   let detail: unknown = response.statusText || `HTTP ${response.status}`
   try {
@@ -41,7 +64,8 @@ async function toApiError(response: Response): Promise<ApiError> {
   const message =
     typeof detail === 'string' && detail.length > 0
       ? detail
-      : `Request failed with status ${response.status}`
+      : (describeValidationDetail(detail) ??
+        `Request failed with status ${response.status}`)
   return new ApiError(response.status, detail, message)
 }
 

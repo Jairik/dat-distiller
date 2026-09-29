@@ -60,13 +60,44 @@ describe('apiGet', () => {
     expect(error.detail).toBe('Project not found')
   })
 
-  it('keeps 422 validation detail arrays', async () => {
-    const detail = [{ loc: ['body', 'rows'], msg: 'Input should be a valid integer' }]
+  it('turns a 422 validation detail array into a readable message', async () => {
+    // The `msgs` are the field-level reasons FastAPI goes to real trouble to
+    // produce. They were captured onto `detail` and thrown away, so a Balance
+    // Target above 1 or an unknown column read as "status 422" and nothing more.
+    const detail = [
+      {
+        loc: ['body', 'balance', 'topic', 'positive'],
+        msg: 'Input should be less than or equal to 1',
+        type: 'less_than_equal',
+      },
+    ]
     stubFetch(response(422, { detail }, 'Unprocessable Entity'))
     const error = await expectApiError(apiPost('/generate', { rows: 'many' }))
     expect(error.status).toBe(422)
+    // The structure is still there for a caller that wants it.
     expect(error.detail).toEqual(detail)
-    expect(error.message).toContain('422')
+    expect(error.message).toBe('balance.topic.positive: Input should be less than or equal to 1')
+  })
+
+  it('joins several validation failures into one sentence', async () => {
+    const detail = [
+      { loc: ['body', 'count'], msg: 'Input should be greater than 0', type: 'greater_than' },
+      { loc: ['body', 'mode'], msg: 'Input should be a valid string', type: 'string_type' },
+    ]
+    stubFetch(response(422, { detail }, 'Unprocessable Entity'))
+    const error = await expectApiError(apiPost('/generate', {}))
+    expect(error.message).toBe(
+      'count: Input should be greater than 0; mode: Input should be a valid string',
+    )
+  })
+
+  it('still falls back to the status when a detail array is not the usual shape', async () => {
+    // An array that is not FastAPI's `{loc, msg}` shape must not produce a
+    // message of "[object Object]" or an empty string.
+    stubFetch(response(422, { detail: ['something', 'unexpected'] }, 'Unprocessable Entity'))
+    const error = await expectApiError(apiPost('/generate', {}))
+    expect(error.message).toBe('Request failed with status 422')
+    expect(error.detail).toEqual(['something', 'unexpected'])
   })
 
   it('falls back to the status text for non-JSON bodies', async () => {
