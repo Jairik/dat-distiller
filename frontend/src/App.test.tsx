@@ -96,6 +96,38 @@ describe('App shell', () => {
     )
   })
 
+  it('says so when deleting a project fails, and keeps the dialog open', async () => {
+    // `remove.mutateAsync` rejects. With nothing catching it, the dialog stayed
+    // open, no error was rendered and an unhandled rejection escaped — so a
+    // destructive action that failed looked exactly like a button that did
+    // nothing, and since the Project is still there the answer is to try again.
+    const user = userEvent.setup()
+    const unhandled: unknown[] = []
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      unhandled.push(event.reason)
+      event.preventDefault()
+    }
+    window.addEventListener('unhandledrejection', onUnhandled)
+    try {
+      mockFetch({
+        'GET /projects': () => PROJECTS,
+        'DELETE /projects/p1': () => json({ detail: 'database is locked' }, 500),
+      })
+      renderWithProviders(<App />)
+      const card = await within(screen.getByRole('main')).findByText('Churn Lab')
+      await user.click(card.closest('div.group')!.querySelector('button')!)
+      await user.click(await screen.findByRole('button', { name: 'Delete project' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('database is locked')
+      // Still open, so the Project is visibly still there.
+      expect(screen.getByRole('heading', { name: /Delete .Churn Lab./ })).toBeInTheDocument()
+      expect(unhandled).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', onUnhandled)
+    }
+  })
+
   it('routes /settings to the settings page', async () => {
     mockFetch({
       'GET /projects': () => [],

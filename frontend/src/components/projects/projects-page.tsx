@@ -151,6 +151,16 @@ export function ProjectsPage() {
               This removes the project and all of its Dataset Versions. There is no undo.
             </DialogDescription>
           </DialogHeader>
+          {/* A delete that fails must say so. `mutateAsync` rejects, and an
+              unhandled rejection here left the dialog open with nothing said —
+              a destructive action that failed looked exactly like a button that
+              did nothing, and the Project is still there, so the answer is to
+              try again. Same shape as the create dialog's error above. */}
+          {remove.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {(remove.error as ApiError).message}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
               Cancel
@@ -159,8 +169,14 @@ export function ProjectsPage() {
               variant="destructive"
               disabled={remove.isPending}
               onClick={async () => {
-                if (confirmDelete) await remove.mutateAsync(confirmDelete.id)
-                setConfirmDelete(null)
+                if (!confirmDelete) return
+                try {
+                  await remove.mutateAsync(confirmDelete.id)
+                  setConfirmDelete(null)
+                } catch {
+                  // The dialog stays open and the error is shown above it, so the
+                  // Project is still there to try again.
+                }
               }}
             >
               {remove.isPending ? 'Deleting…' : 'Delete project'}
