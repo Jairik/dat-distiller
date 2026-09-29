@@ -110,10 +110,13 @@ test('a generated dataset can be labeled, reviewed, trained, measured and export
   const queue = page.getByText('Review Queue', { exact: true }).first()
   await expect(queue).toBeVisible({ timeout: 20_000 })
   // with the default threshold there may be nothing to review; that is a valid
-  // outcome, and the run must say which one it is
+  // outcome, and the run must say which one it is. The assertion has to be on
+  // the branch's *content* — re-checking the condition that selected the branch
+  // proves nothing, which is what this used to do.
   const nothing = page.getByText(/Nothing to review at this threshold/)
   if (await nothing.isVisible().catch(() => false)) {
-    expect(await nothing.isVisible()).toBe(true)
+    await expect(nothing).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0)
   } else {
     // `name` is a substring match by default, so a bare 'Accept' also matches
     // "Accept all 200 shown" — which stages the whole queue rather than one row

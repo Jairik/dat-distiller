@@ -17,6 +17,8 @@ export interface TrainingRunSummary {
   task_type: string
   seed: number
   primary_metric: string
+  /** Null until the run records it; the list falls back to higher-is-better. */
+  primary_metric_higher_is_better?: boolean | null
   n_models: number
   best_model: string | null
   best_primary_value: number | null

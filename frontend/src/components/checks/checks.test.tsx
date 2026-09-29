@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ChecksPanel, ChecksWarningBadge } from '@/components/checks/checks-panel'
 import { checksKey } from '@/lib/checks'
-import { mockFetch, renderWithProviders } from '@/test/render'
+import { json, mockFetch, renderWithProviders } from '@/test/render'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -207,6 +207,24 @@ describe('ChecksPanel gate', () => {
     expect(screen.getAllByText('Acknowledged')).toHaveLength(2)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onContinue).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not claim everything was read when the Checks could not be read', async () => {
+    // Two contradictory sentences used to be on screen at once: the body said
+    // the Checks could not be read, and the footer said "Everything here has
+    // been read". Opening the gate on a failed read is deliberate — a Check
+    // never blocks the work — but that is not the same as saying there was
+    // nothing to read. The e2e helper waits for exactly the old string, so it
+    // could pass on an errored query.
+    const onContinue = vi.fn()
+    mockFetch({ 'GET /checks': () => json({ detail: 'checks store is locked' }, 500) })
+    renderWithProviders(
+      <ChecksPanel subjectType="project" subjectId="p1" onContinue={onContinue} />,
+    )
+    expect(
+      await screen.findByText('The Checks could not be read, so this step is open on trust.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Everything here has been read.')).not.toBeInTheDocument()
   })
 
   it('unlocks immediately when the only Checks are info', async () => {

@@ -256,9 +256,15 @@ export function ChecksPanel({
       {onContinue && (
         <CardFooter className="flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            {ready && clear
-              ? 'Everything here has been read.'
-              : 'Acknowledge the warnings above to unlock this step.'}
+            {/* Opening the gate on a failed read is deliberate — a Check never
+                blocks the work — but "Everything here has been read" is not, when
+                nothing was read. Note the e2e helper waits for exactly this
+                string, so it could pass on an errored Checks query. */}
+            {query.isError
+              ? 'The Checks could not be read, so this step is open on trust.'
+              : ready && clear
+                ? 'Everything here has been read.'
+                : 'Acknowledge the warnings above to unlock this step.'}
           </p>
           <Button onClick={onContinue} disabled={!ready || !clear}>
             {continueLabel}

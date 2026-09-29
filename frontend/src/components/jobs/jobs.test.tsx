@@ -154,13 +154,18 @@ describe('RunningJobsBanner', () => {
       }),
     })
     renderWithProviders(<RunningJobsBanner />)
-    const bar = await screen.findByRole('status')
-    expect(bar).toHaveTextContent('1 job running')
-    expect(bar).toHaveTextContent('40%')
-    expect(within(bar).getByRole('link', { name: /generate/i })).toHaveAttribute(
-      'href',
-      '/projects/p1/dataset',
-    )
+    // The live region is the count, and only the count. The banner is polled
+    // every 1.5s, so putting the percentage inside `role="status"` re-announced
+    // the whole thing about 40 times a minute.
+    const live = await screen.findByRole('status')
+    expect(live).toHaveTextContent('1 job running')
+    expect(live).not.toHaveTextContent('40%')
+
+    const link = screen.getByRole('link', { name: /generate/i })
+    expect(link).toHaveAttribute('href', '/projects/p1/dataset')
+    // The progress is still there to read, just not announced on every tick.
+    expect(link).toHaveTextContent('40%')
+    expect(within(link).getByTitle(/40%/)).toBeInTheDocument()
   })
 
   it('hides itself when nothing is active', async () => {

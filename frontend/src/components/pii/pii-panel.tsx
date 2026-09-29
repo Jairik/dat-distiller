@@ -171,6 +171,10 @@ function FindingRow({
               key={action}
               size="sm"
               variant={choice === action ? 'default' : 'outline'}
+              // The variant is a colour and a border, and nothing else: without
+              // this a screen-reader user activating "Mask" gets no confirmation
+              // that anything was selected.
+              aria-pressed={choice === action}
               onClick={() => onChoose(action)}
             >
               {action === 'mask' ? 'Mask' : 'Drop'}

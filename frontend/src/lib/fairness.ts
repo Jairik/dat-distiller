@@ -168,16 +168,19 @@ export function explainGap(gap: FairnessGap, report: FairnessReport): string {
     .map((g) => ({ group: g.group, value: g.measured ? g.metrics[gap.metric]?.value : null }))
     .filter((entry): entry is { group: string; value: number } => entry.value !== null && entry.value !== undefined)
     .sort((a, b) => b.value - a.value)
-  const best = groups[0]
-  const worst = groups.at(-1)
-  if (!best || !worst || best.group === worst.group) {
+  // `groups` is sorted descending, so the first is the *largest* value and the
+  // last the smallest. For fpr or mae the largest is the group treated worst, so
+  // the old `best`/`worst` naming put the worse group first in the sentence:
+  // "False positive rate: str:a (0.60) against str:b (0.10)" named the group with
+  // six times the false alarms first. Named for what they are instead of for a
+  // good and a bad score, which is true for every metric and needs no
+  // per-metric wording.
+  const highest = groups[0]
+  const lowest = groups.at(-1)
+  if (!highest || !lowest || highest.group === lowest.group) {
     return `${gap.label} is ${formatGap(gap, report)} — only one group had a value.`
   }
-  const subject = gap.name === 'demographic_parity' ? 'was flagged' : gap.name === 'fpr' ? 'false alarms' : null
-  const base =
-    subject !== null
-      ? `${best.group} (${best.value.toFixed(2)}) against ${worst.group} (${worst.value.toFixed(2)})`
-      : `${best.group} scored ${best.value.toFixed(2)} against ${worst.group} at ${worst.value.toFixed(2)}`
+  const base = `${highest.group} had the highest ${gap.metric.replace(/_/g, ' ')} at ${highest.value.toFixed(2)}, against ${lowest.group} at ${lowest.value.toFixed(2)}`
   const verdict =
     gap.exceeds === true
       ? `That is ${gap.value.toFixed(3)}, over the ${gap.threshold} threshold — flagged.`

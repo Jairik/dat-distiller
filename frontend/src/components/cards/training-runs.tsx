@@ -91,7 +91,7 @@ function RunRow({ run, projectId }: { run: TrainingRunSummary; projectId: string
           <span className="text-sm text-muted-foreground">
             {`${run.n_models} Model${run.n_models === 1 ? '' : 's'} · best: ${
               run.best_model ?? 'none ranked'
-            } · ${run.primary_metric} ${formatPrimary(run.best_primary_value)}`}
+            } · ${run.primary_metric} ${formatPrimary(run.best_primary_value, run.primary_metric_higher_is_better ?? undefined)}`}
           </span>
         ) : failed ? (
           <span className="flex items-start gap-1.5 text-sm text-destructive">

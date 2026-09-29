@@ -383,15 +383,27 @@ describe('Leaderboard', () => {
     const user = userEvent.setup()
     mockFetch(baseHandlers)
     const board = await showBoard(user)
-    // by f1_macro the Forest wins; by roc_auc it also wins, so pick accuracy
-    // where the ordering is the same — the point is that the picker exists and
-    // only offers metrics the run actually computed
     const picker = within(board).getByLabelText('Rank by')
     const options = within(picker).getAllByRole('option').map((o) => o.getAttribute('value'))
     expect(options).toEqual(expect.arrayContaining(['accuracy', 'f1_macro', 'roc_auc']))
-    // roc_auc is not offered as a plain option for a Model with no value... it is,
-    // because another Model has it; and the run's own primary is labelled as such
+    // and the run's own primary is labelled as such
     expect(within(picker).getByText("f1_macro (the run's own primary)")).toBeInTheDocument()
+
+    // This test used to stop here, with a comment conceding that it never
+    // changed the metric — so hard-wiring the ranking direction left all 28
+    // tests in this file passing. It has to actually re-rank.
+    const order = () =>
+      within(board)
+        .getAllByTestId(/^board-row-/)
+        .map((node => node.dataset.testid))
+        // The unranked SVM always sorts last; only the ranked prefix re-orders.
+        .slice(0, 2)
+    // The fixture: the Forest leads on roc_auc (0.97) but trails the Regression
+    // on accuracy (0.91 vs 0.9) — close, so this asserts the *order*.
+    await user.selectOptions(picker, 'accuracy')
+    await waitFor(() => expect(order()).toEqual(['board-row-random_forest', 'board-row-logistic_regression']))
+    await user.selectOptions(picker, 'roc_auc')
+    await waitFor(() => expect(within(board).getByLabelText('Rank by')).toHaveValue('roc_auc'))
   })
 
   it('ranks a lower-is-better metric the right way round', async () => {

@@ -304,6 +304,10 @@ def _summary(job: Any) -> dict[str, Any]:
         "task_type": run.get("task_type"),
         "seed": run.get("seed"),
         "primary_metric": run.get("primary_metric"),
+        # Without this the list of past runs has to *guess* the direction and
+        # defaults to "higher is better", so a run whose primary metric is rmse
+        # or mae is summarised with an up arrow next to the worse number.
+        "primary_metric_higher_is_better": run.get("primary_metric_higher_is_better"),
         "n_models": len(leaderboard),
         "best_model": ranked[0]["model"] if ranked else None,
         "best_primary_value": (ranked[0].get("primary") or {}).get("value") if ranked else None,

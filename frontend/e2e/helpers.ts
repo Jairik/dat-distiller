@@ -123,19 +123,21 @@ export async function waitForJob(
 /** Acknowledge every outstanding warning on the panel in view. */
 export async function acknowledgeAll(page: Page): Promise<number> {
   let count = 0
-  // the panel re-renders after each acknowledgement, so re-query every time
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  // The panel re-renders after each acknowledgement, so re-query every time.
+  // This used to `break` unconditionally on the first pass, which meant it could
+  // only ever acknowledge one warning however many were outstanding — and the
+  // `12` bound was dead. A step that raises two then failed its caller at
+  // `toBeEnabled()` for a reason that had nothing to do with what it was testing.
+  for (;;) {
     const ack = page.getByRole('button', { name: 'Acknowledge' }).first()
-    if (!(await ack.isVisible().catch(() => false))) break
+    if (!(await ack.isVisible().catch(() => false))) return count
     await ack.click()
     const save = page.getByRole('button', { name: 'Record Acknowledgement' })
     await save.waitFor({ state: 'visible', timeout: 10_000 })
     await save.click()
     count += 1
     await expect(page.getByText('Everything here has been read.')).toBeVisible({ timeout: 10_000 })
-    break
   }
-  return count
 }
 
 /** Describe the page if something is missing, so a failure is diagnosable. */

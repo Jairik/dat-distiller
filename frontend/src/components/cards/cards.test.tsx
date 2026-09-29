@@ -265,6 +265,33 @@ describe('Model Cards — from the Training Runs list', () => {
     expect(row.textContent).toContain('seed 99')
   })
 
+  it('arrows the primary metric in the direction that metric actually goes', async () => {
+    // The list always printed an up arrow, because `formatPrimary` defaults to
+    // higher-is-better and the summary never said otherwise. For a run whose
+    // primary metric is rmse or mae, scrolling the history told the reader that
+    // the bigger number was the better one.
+    mockFetch({
+      ...baseHandlers,
+      'GET /train/runs': () => ({
+        project_id: 'p1',
+        count: 1,
+        runs: [
+          {
+            ...RUN,
+            task_type: 'regression',
+            primary_metric: 'rmse',
+            primary_metric_higher_is_better: false,
+            best_primary_value: 1.0,
+          },
+        ],
+      }),
+    })
+    renderWithProviders(<App />, { route: '/projects/p1/train' })
+    const row = await screen.findByTestId('training-run-run1')
+    expect(row.textContent).toContain('rmse 1.0000 ↓')
+    expect(row.textContent).not.toContain('rmse 1.0000 ↑')
+  })
+
   it('lists a failed run with its reason rather than hiding it', async () => {
     mockFetch({
       ...baseHandlers,

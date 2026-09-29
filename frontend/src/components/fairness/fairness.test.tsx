@@ -692,6 +692,26 @@ describe('explainGap', () => {
     expect(text).toContain('over the 0.1 threshold')
   })
 
+  it('names the worse group as the worse one, whichever way the metric goes', () => {
+    // `groups` is sorted descending, so for a lower-is-better metric the slot
+    // the old code called "best" held the *worse* group: the sentence read
+    // "False positive rate: str:a (0.60) against str:b (0.10)", naming the group
+    // with six times the false alarms first. The two ends are now described by
+    // what they are rather than by a good and a bad score.
+    const fpr = explainGap(
+      { ...REPORT.gaps[0], name: 'fpr', label: 'False positive rate difference', metric: 'fpr' },
+      {
+        ...REPORT,
+        groups: [
+          { ...REPORT.groups[0], group: 'str:a', metrics: { fpr: { value: 0.6, reason: null } } },
+          { ...REPORT.groups[1], group: 'str:b', metrics: { fpr: { value: 0.1, reason: null } } },
+        ],
+      },
+    )
+    expect(fpr).toContain('str:a had the highest fpr at 0.60')
+    expect(fpr).toContain('against str:b at 0.10')
+  })
+
   it('says a gap it could not measure, with the reason', () => {
     const text = explainGap(
       { ...REPORT.gaps[0], value: null, reason: 'only one group had a value' },
