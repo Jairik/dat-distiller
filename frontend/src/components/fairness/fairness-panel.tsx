@@ -305,11 +305,22 @@ function MetricBars({
   groups: FairnessGroup[]
   threshold?: number
 }) {
-  const data = groups.map((group) => ({
-    group: group.group,
-    value: group.metrics[metric]?.value ?? 0,
-    n: group.n_test,
-  }))
+  // A group with no value for this metric is left out rather than drawn as a
+  // real 0.0. The numbers table below prints an em dash for exactly these groups,
+  // so `?? 0` made the chart and the table disagree about the same measurement —
+  // and "this group scored nothing" is not what a zero-length bar says.
+  const data = groups
+    .map((group) => ({ group: group.group, value: group.metrics[metric]?.value ?? null, n: group.n_test }))
+    .filter((row): row is { group: string; value: number; n: number } => row.value !== null)
+
+  // `[0, 1]` is right for a rate and wrong for everything else: an MAE of 1.2
+  // and an MAE of 3.4 both clamp to a full-width bar, so a regression report's
+  // headline chart was a row of identical bars — the opposite of what the panel
+  // exists to show. The domain comes from the data, with 0 kept as the baseline
+  // because every one of these metrics is a quantity where zero is meaningful.
+  const max = data.reduce((widest, row) => Math.max(widest, row.value), 0)
+  const domain: [number, number] = [0, max > 0 ? max : 1]
+
   return (
     <section data-testid={`bars-${metric}`}>
       <p className="text-sm font-medium">{METRIC_LABELS[metric] ?? metric}</p>
@@ -324,7 +335,7 @@ function MetricBars({
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
             <XAxis
               type="number"
-              domain={[0, 1]}
+              domain={domain}
               tickFormatter={(v) => Number(v).toFixed(1)}
             />
             <YAxis type="category" dataKey="group" width={96} />

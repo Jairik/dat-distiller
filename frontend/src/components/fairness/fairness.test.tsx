@@ -23,6 +23,41 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
+
+/**
+ * Recharts stands in for itself, and renders the data it was handed.
+ *
+ * The panel's own test asserted only on the `role="img"` wrapper, so hard-coding
+ * every bar's value to 0 *and deleting the `<Bar>` element entirely* left all 20
+ * tests in this file passing — the chart was not under test at all. Recharts
+ * measures nothing in jsdom (`ResponsiveContainer` has zero size), so stubbing
+ * it is the only honest way to see what the chart was given.
+ */
+vi.mock('recharts', () => {
+  const Box = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
+  return {
+    ResponsiveContainer: Box,
+    BarChart: ({
+      data,
+      children,
+    }: {
+      data?: Array<Record<string, unknown>>
+      children?: React.ReactNode
+    }) => (
+      <div data-testid="bar-chart" data-rows={JSON.stringify(data ?? [])}>
+        {children}
+      </div>
+    ),
+    Bar: ({ dataKey }: { dataKey?: string }) => <div data-testid="bar" data-key={dataKey} />,
+    XAxis: (props: Record<string, unknown>) => (
+      <div data-testid="x-axis" data-domain={JSON.stringify(props.domain)} />
+    ),
+    YAxis: () => <div data-testid="y-axis" />,
+    CartesianGrid: () => <div data-testid="grid" />,
+    Tooltip: () => null,
+    ReferenceLine: () => <div data-testid="reference-line" />,
+  }
+})
 import { explainGap, headlineGap, type FairnessReport } from '@/lib/fairness'
 import { mockFetch, renderWithProviders } from '@/test/render'
 import { emitJobEvent, stubEventSource } from '@/test/sse'
@@ -278,6 +313,40 @@ const baseHandlers = {
   'POST /train/runs/j1/fairness': () => REPORT,
 }
 
+/** A regression report: `mae` is an error in the Target's units, not a rate. */
+const REGRESSION_REPORT: FairnessReport = {
+      ...REPORT,
+      task_type: 'regression',
+      target: 'spend_target',
+      positive_class: null,
+      groups: [
+        group('str:a', { mae: { value: 1.2, reason: null }, mae_relative: { value: 0.1, reason: null } }),
+        group('str:b', { mae: { value: 3.4, reason: null }, mae_relative: { value: 0.28, reason: null } }),
+      ],
+      n_groups: 2,
+      n_groups_measured: 2,
+      unmeasured_groups: [],
+      gaps: [
+        gap({
+          name: 'mae',
+          label: 'Mean absolute error difference',
+          metric: 'mae',
+          unit: 'Target units',
+          value: 2.2,
+          comparable: false,
+          exceeds: null,
+        }),
+        gap({
+          name: 'mae_relative',
+          label: 'Mean absolute error difference (relative)',
+          metric: 'mae_relative',
+          value: 0.18,
+          exceeds: true,
+        }),
+      ],
+      gaps_exceeding_threshold: ['mae_relative'],
+    }
+
 async function showReport(
   user: ReturnType<typeof userEvent.setup>,
   handlers: Record<string, unknown> = {},
@@ -392,6 +461,76 @@ describe('Fairness Report — readable at a glance', () => {
     ])
   })
 
+  it('charts the values it was given, and leaves out the groups it has none for', async () => {
+    const user = userEvent.setup()
+    await showReport(user)
+    const bars = await screen.findByTestId('fairness-bars')
+    const charts = within(bars).getAllByTestId('bar-chart')
+    expect(charts.length).toBeGreaterThan(0)
+
+    for (const chart of charts) {
+      const rows = JSON.parse(chart.getAttribute('data-rows') ?? '[]') as Array<{
+        group: string
+        value: number
+      }>
+      // Every plotted value is a real measurement, never a stand-in zero.
+      expect(rows.length).toBeGreaterThan(0)
+      for (const row of rows) {
+        expect(Number.isFinite(row.value)).toBe(true)
+      }
+    }
+
+    // The bars are actually rendered, not just prepared.
+    expect(within(bars).getAllByTestId('bar').length).toBeGreaterThan(0)
+  })
+
+  it('leaves a group with no value for a metric out of that chart, not in at zero', async () => {
+    // The numbers table prints an em dash for exactly these groups, so `?? 0`
+    // made the chart and the table disagree about the same measurement — and a
+    // zero-length bar says "this group scored nothing", which is not the same
+    // claim as "there was nothing to measure".
+    const user = userEvent.setup()
+    const partial: FairnessReport = {
+      ...REPORT,
+      groups: [
+        group('str:a', { accuracy: { value: 0.95, reason: null } }),
+        group('str:b', { accuracy: { value: null, reason: 'this group has one class only' } }),
+        group('str:c', { accuracy: { value: 0.4, reason: null } }),
+      ],
+    }
+    await showReport(user, { 'POST /train/runs/j1/fairness': () => partial })
+    const bars = await screen.findByTestId('fairness-bars')
+    const accuracy = within(bars).getByTestId('bars-accuracy')
+    const rows = JSON.parse(
+      accuracy.querySelector('[data-testid="bar-chart"]')!.getAttribute('data-rows')!,
+    ) as Array<{ group: string; value: number }>
+
+    expect(rows.map((r) => r.group)).toEqual(['str:a', 'str:c'])
+    expect(rows.every((r) => r.value > 0)).toBe(true)
+    // The table still accounts for all three, with the gap marked.
+    const table = within(bars).getByTestId('table-accuracy')
+    expect(within(table).getAllByRole('row').slice(1)).toHaveLength(3)
+  })
+
+  it('scales the axis to the metric, so a regression error is not clipped to full width', async () => {
+    // `domain={[0, 1]}` is right for a rate and wrong for an error: an MAE of
+    // 1.2 and an MAE of 3.4 both clamp to a full-width bar, so the headline
+    // chart of a regression report was a row of identical bars.
+    const user = userEvent.setup()
+    await showReport(user, { 'POST /train/runs/j1/fairness': () => REGRESSION_REPORT })
+    const bars = await screen.findByTestId('fairness-bars')
+    const mae = within(bars).getByTestId('bars-mae')
+    const domain = JSON.parse(mae.querySelector('[data-testid="x-axis"]')!.getAttribute('data-domain')!)
+    const [low, high] = domain as [number, number]
+    expect(low).toBe(0)
+    expect(high).toBeGreaterThanOrEqual(3.4)
+
+    // And the wider error is drawn wider, which is the whole point of the chart.
+    const chart = mae.querySelector('[data-testid="bar-chart"]')!
+    const rows = JSON.parse(chart.getAttribute('data-rows')!) as Array<{ value: number }>
+    expect(rows[0].value).not.toBe(rows[1].value)
+  })
+
   it('says which group was treated worse, in a sentence', async () => {
     const user = userEvent.setup()
     const headline = await showReport(user)
@@ -426,39 +565,8 @@ describe('Fairness Report — readable at a glance', () => {
 
   it('says a gap in the Target’s own units cannot be judged by a rate threshold', async () => {
     const user = userEvent.setup()
-    const regressionReport: FairnessReport = {
-      ...REPORT,
-      task_type: 'regression',
-      target: 'spend_target',
-      positive_class: null,
-      groups: [
-        group('str:a', { mae: { value: 1.2, reason: null }, mae_relative: { value: 0.1, reason: null } }),
-        group('str:b', { mae: { value: 3.4, reason: null }, mae_relative: { value: 0.28, reason: null } }),
-      ],
-      n_groups: 2,
-      n_groups_measured: 2,
-      unmeasured_groups: [],
-      gaps: [
-        gap({
-          name: 'mae',
-          label: 'Mean absolute error difference',
-          metric: 'mae',
-          unit: 'Target units',
-          value: 2.2,
-          comparable: false,
-          exceeds: null,
-        }),
-        gap({
-          name: 'mae_relative',
-          label: 'Mean absolute error difference (relative)',
-          metric: 'mae_relative',
-          value: 0.18,
-          exceeds: true,
-        }),
-      ],
-      gaps_exceeding_threshold: ['mae_relative'],
-    }
-    await showReport(user, { 'POST /train/runs/j1/fairness': () => regressionReport })
+    await showReport(user, { 'POST /train/runs/j1/fairness': () => REGRESSION_REPORT })
+
     const gaps = await screen.findByTestId('fairness-gaps')
     const mae = within(gaps).getByTestId('gap-mae')
     expect(mae).toHaveTextContent('2.2000 Target units')
