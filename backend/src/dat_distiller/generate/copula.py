@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ..store.columns import infer_kind
+from ..store.columns import epoch_seconds, infer_kind
 from ..store.provenance import PROVENANCE_COLUMN
 
 _BALANCE_TOLERANCE = 0.03
@@ -94,12 +94,15 @@ class _Marginal:
             out = np.clip(out, self.sorted_values.min(), self.sorted_values.max())
             return out.astype("int64")
         if self.kind == "datetime":
-            return pd.to_datetime(out.astype("int64"), unit="ns")
+            # `sorted_values` holds epoch *seconds* (see `marginal_values`), so
+            # this has to read them back as seconds. Reading them as nanoseconds
+            # does not error — it quietly returns 1970 for every generated date.
+            return pd.to_datetime(out.astype("int64"), unit="s")
         return out
 
     def _numeric(self, values: pd.Series) -> np.ndarray:
         if self.kind == "datetime":
-            return pd.to_datetime(values).astype("int64").to_numpy().astype(float)
+            return epoch_seconds(values)
         return pd.to_numeric(values).to_numpy(dtype=float)
 
 
@@ -238,7 +241,7 @@ class GaussianCopula:
 
 def marginal_values(kind: str, filled: pd.Series) -> np.ndarray:
     if kind == "datetime":
-        return pd.to_datetime(filled).astype("int64").to_numpy().astype(float)
+        return epoch_seconds(filled)
     return pd.to_numeric(filled).to_numpy(dtype=float)
 
 

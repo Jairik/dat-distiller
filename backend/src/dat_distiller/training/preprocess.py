@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ..store.columns import infer_kind
+from ..store.columns import epoch_seconds, infer_kind
 
 #: Bumped when the dict shape changes so a bundle can refuse an old spec.
 SPEC_VERSION = 1
@@ -237,18 +237,11 @@ def _numeric_values(series: pd.Series) -> np.ndarray:
 def _datetime_values(series: pd.Series) -> np.ndarray:
     """Epoch seconds, with a missing timestamp left missing.
 
-    Casting a datetime64 column to int64 does not turn ``NaT`` into a gap — it
-    turns it into the int64 minimum, about 5e10 times larger than any real date
-    and on the wrong side of it. That number is finite, so the isfinite guards
-    below wave it through into the median, the mean and the scale fitted for the
-    column: one missing timestamp inflates the scale enough to squash every real
-    date into a sliver, and the corrupted pipeline is what gets persisted on the
-    run and shipped in the Model Bundle. So the gaps are put back explicitly.
+    Thin alias for :func:`store.columns.epoch_seconds`, which owns the
+    conversion — the fitter's isfinite guards already handle NaN, they were
+    simply never handed one.
     """
-    converted = pd.to_datetime(series, errors="coerce", utc=True)
-    values = converted.astype("int64").to_numpy(dtype="float64") / 1_000_000_000.0
-    values[converted.isna().to_numpy()] = np.nan
-    return values
+    return epoch_seconds(series)
 
 
 def _is_missing(value: Any) -> bool:

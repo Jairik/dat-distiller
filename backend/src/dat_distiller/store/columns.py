@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 #: A non-numeric object column at least this sparse in unique values (or with
@@ -70,3 +71,29 @@ def infer_column_info(df: pd.DataFrame) -> list[ColumnInfo]:
         ColumnInfo(name=str(col), dtype=str(df[col].dtype), kind=infer_kind(df[col]))
         for col in df.columns
     ]
+
+
+def epoch_seconds(series: pd.Series) -> np.ndarray:
+    """A datetime column as epoch seconds, with a missing timestamp left missing.
+
+    Casting a datetime64 column to int64 does not turn ``NaT`` into a gap — it
+    turns it into the int64 minimum, about 5e10 times larger than any real date
+    and on the wrong side of it. That number is finite, so it passes every
+    ``isfinite`` guard downstream and lands in a median, a mean, a scale or a
+    distance as though it were a real observation. ``np.datetime64('NaT')``
+    widened to float gives the same sentinel, so the gaps have to be masked
+    explicitly against ``isna()``.
+
+    Lives beside :func:`infer_kind` because the two answer one question between
+    them: what kind is this column, and what are its values as numbers. Every
+    caller that needs the second needs the first, and the conversion has been
+    written out five times.
+    """
+    converted = pd.to_datetime(series, errors="coerce", utc=True)
+    # `to_numpy(dtype="datetime64[ns]")` first, because the resolution is not
+    # guaranteed: pandas carries datetime64[s] and datetime64[us] as readily as
+    # [ns], and casting whatever is there to int64 and dividing by 1e9 then
+    # yields milliseconds, quietly, for a third of the values in a frame.
+    values = converted.to_numpy(dtype="datetime64[ns]").astype("int64") / 1_000_000_000.0
+    values[converted.isna().to_numpy()] = np.nan
+    return values

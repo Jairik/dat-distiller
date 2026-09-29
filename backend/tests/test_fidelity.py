@@ -136,3 +136,113 @@ def test_empty_and_text_only_frames_do_not_crash() -> None:
     report = build_fidelity_report(sample, generated)
     assert math.isfinite(report["correlation_drift"])
     assert report["near_copies"]["count"] == 0  # text ignored
+
+
+# -- a missing timestamp is a gap, not a number ------------------------------
+
+
+def dated_pair(rows: int = 200, seed: int = 3) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """A sample and a generated set sharing a datetime column, with a gap in one."""
+    rng = np.random.default_rng(seed)
+    base = pd.Timestamp("2021-01-01")
+
+    def frame() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "when": pd.Series(
+                    [base + pd.Timedelta(days=int(d)) for d in rng.integers(0, 900, rows)],
+                    dtype="datetime64[ns]",
+                ),
+                "amount": rng.normal(10, 2, rows),
+            }
+        )
+
+    sample, generated = frame(), frame()
+    # One gap in the sample only — a date that failed to parse, a blank cell.
+    sample.loc[3, "when"] = pd.NaT
+    return sample, generated
+
+
+def test_the_frame_the_fidelity_distances_are_measured_in_has_no_sentinel() -> None:
+    """The numbers the distances are computed from must not contain the sentinel.
+
+    `NaT` cast to int64 is the int64 minimum, which is finite — so it survived the
+    `.dropna()` in `_ks_tests` and entered the comparison as a real observation
+    about 5e10 seconds from every other date. The KS statistic barely moves,
+    because one extreme point leaves both ECDFs at zero below it and the curves
+    still track; the corruption is in the *input*, not visibly in that one
+    number. So this asserts on the input, which is the thing that was wrong.
+    """
+    from dat_distiller.generate.fidelity import _numeric_frame
+
+    sample, _generated = dated_pair()
+    numbers = _numeric_frame(sample)
+    assert "when" in numbers.columns
+    column = numbers["when"].to_numpy()
+    assert np.isnan(column[3]), "the gap should be a gap"
+    real = column[~np.isnan(column)]
+    # Every real observation is a real date; the sentinel is before 1970.
+    assert real.min() > 1_000_000_000
+    assert (real > 0).all()
+
+
+def test_the_copulas_datetime_marginal_ignores_a_missing_timestamp() -> None:
+    """One gap must not become a date the copula can generate.
+
+    The copula interpolates between the values it was fitted on, so a sentinel
+    inside `sorted_values` is not just a bad input — it is a value it can draw,
+    and quantile interpolation will happily return a date near 1677.
+    """
+    from dat_distiller.generate.copula import marginal_values
+
+    series = pd.Series(pd.to_datetime(["2021-01-01", None, "2021-06-01"], utc=True))
+    values = marginal_values("datetime", series)
+    assert np.isnan(values[1])
+    assert np.nanmin(values) > 1_000_000_000
+    assert np.nanmedian(values) == pytest.approx(
+        float(pd.Timestamp("2021-03-17", tz="UTC").value / 1e9), rel=0.01
+    )
+
+
+def test_generated_datetimes_land_in_the_same_era_as_the_sample() -> None:
+    """The conversion and its inverse have to agree on the unit.
+
+    Worth its own test because the two can drift apart without either raising:
+    a marginal fitted in seconds and read back as nanoseconds generates 1970 for
+    every row, which is a valid datetime and a completely wrong dataset.
+    """
+    rng = np.random.default_rng(3)
+    base = pd.Timestamp("2021-01-01")
+    when = [base + pd.Timedelta(days=int(day)) for day in rng.integers(0, 900, 300)]
+    when[7] = pd.NaT
+    frame = pd.DataFrame(
+        {
+            "when": pd.Series(when, dtype="datetime64[ns]"),
+            "amount": rng.normal(10, 2, 300),
+        }
+    )
+    generated = GaussianCopula.fit(frame).sample(200, seed=0)
+    dates = pd.to_datetime(generated["when"], errors="coerce")
+    assert dates.notna().all()
+    assert dates.min() >= pd.Timestamp("2020-01-01")
+    assert dates.max() <= pd.Timestamp("2025-01-01")
+    # Resolution-agnostic: a column carried at [s] or [us] must still be read as
+    # the dates it is, not as a different era entirely.
+    assert dates.dt.year.between(2021, 2023).all()
+
+
+def test_the_shared_conversion_is_the_one_every_caller_uses() -> None:
+    """`epoch_seconds` is the definition, and NaT is a gap in it.
+
+    The same expression was written out five times across the fitter, the copula
+    and the fidelity report, which is how it came to be fixed in one place and
+    missed in the others. This pins the helper itself rather than each caller.
+    """
+    from dat_distiller.store.columns import epoch_seconds
+
+    series = pd.Series(pd.to_datetime(["2020-01-01", None, "2020-01-03"], utc=True))
+    values = epoch_seconds(series)
+    assert np.isnan(values[1])
+    assert values[0] < values[2]
+    # And the sentinel is nowhere in sight.
+    assert np.isfinite(values[[0, 2]]).all()

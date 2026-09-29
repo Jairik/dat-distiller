@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from ..store.columns import infer_kind
+from ..store.columns import epoch_seconds, infer_kind
 from ..store.provenance import PROVENANCE_COLUMN
 
 NEAR_COPY_THRESHOLD = 0.05
@@ -40,7 +40,7 @@ def _numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame = df[keep].copy()
     for column in frame.columns:
         if infer_kind(df[column]) == "datetime":
-            frame[column] = pd.to_datetime(df[column]).astype("int64").astype(float) / 1e9
+            frame[column] = epoch_seconds(df[column])
         else:
             frame[column] = pd.to_numeric(df[column], errors="coerce").astype(float)
     return frame
@@ -164,7 +164,7 @@ def _near_copies(
 
         def numbers(series: pd.Series) -> np.ndarray:
             if kind == "datetime":
-                return pd.to_datetime(series, errors="coerce").astype("int64").to_numpy() / 1e9
+                return epoch_seconds(series)
             return pd.to_numeric(series, errors="coerce").astype(float).to_numpy()
 
         ref_values = numbers(ref[column])
