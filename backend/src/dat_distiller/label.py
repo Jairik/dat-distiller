@@ -58,6 +58,7 @@ def parse_question(spec: _QuestionDict) -> Noul | Choice | Score:
         criteria = spec.get("criteria") or {}
         if len(criteria) < 2:
             raise ValueError(f"choice question {name!r} needs at least 2 criteria")
+        _refuse_colliding_criteria(name, criteria)
         return Choice(name=name, instructions=instructions, criteria=dict(criteria))
     if qtype == "score":
         levels = spec.get("levels") or []
@@ -71,8 +72,41 @@ def _option_column(option: str) -> str:
     return "p_" + re.sub(r"[^a-zA-Z0-9_]+", "_", option).strip("_").lower()
 
 
+def _refuse_colliding_criteria(name: str, criteria: Any) -> None:
+    """Refuse Choice criteria that would share a probability column.
+
+    Each criterion gets a sibling column derived from its name, so two criteria
+    whose names normalise alike — "Very Positive" and "very positive", or "a-b"
+    and "a_b" — land on the same column. The second write then overwrites the
+    first, and the Jev's probability for the criterion it actually answered lands
+    in the other one's column while the answer column disagrees with both. Nothing
+    errors: one criterion's data is simply gone.
+
+    Renaming them apart would paper over what is almost always a typo, and would
+    make the data harder to trust later, so this is refused at the point the
+    Jev Question is defined instead.
+    """
+    seen: dict[str, str] = {}
+    for key in criteria:
+        column = _option_column(str(key))
+        if column in seen:
+            raise ValueError(
+                f"choice question {name!r} has criteria {seen[column]!r} and {str(key)!r}, "
+                f"which both become the column {name}__{column}; rename one so each criterion "
+                "has its own probability column"
+            )
+        seen[column] = str(key)
+
+
 def label_columns(questions: list[Noul | Choice | Score]) -> list[str]:
-    """Output columns per the naming convention, deterministic order."""
+    """Output columns per the naming convention, deterministic order.
+
+    A duplicate here would be silently destructive — two criteria writing one
+    column — so this refuses rather than returning one. `parse_question` already
+    catches the case when a Jev Question arrives over the API; this covers a
+    `Choice` built directly, and keeps the guarantee in the one function that
+    mints the names.
+    """
     columns: list[str] = []
     for question in questions:
         columns += [question.name, f"{question.name}__confidence"]
@@ -80,6 +114,17 @@ def label_columns(questions: list[Noul | Choice | Score]) -> list[str]:
             columns += [f"{question.name}__{_option_column(key)}" for key in question.criteria]
         elif isinstance(question, Score):
             columns.append(f"{question.name}__probabilities")
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for column in columns:
+        if column in seen and column not in duplicates:
+            duplicates.append(column)
+        seen.add(column)
+    if duplicates:
+        raise ValueError(
+            f"these Jev Questions would write the same column twice: "
+            f"{', '.join(duplicates)}. Rename the criteria that collide."
+        )
     return columns
 
 

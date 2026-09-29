@@ -116,6 +116,77 @@ def test_naming_convention_covers_all_three_types() -> None:
     ]
 
 
+# -- criteria that would share a probability column --------------------------
+
+
+def test_criteria_that_normalise_alike_are_refused() -> None:
+    """Two options, one column: the second write would erase the first.
+
+    Each Choice option's probability goes in a sibling column named after it, so
+    options that normalise alike land on the same one. "Very Positive" and "very
+    positive" both become `p_very_positive`, and the Jev's probability for the
+    option it actually answered was being written to the other's column while
+    the answer column disagreed with both. Nothing errored; half the data was
+    simply gone.
+    """
+    with pytest.raises(ValueError, match="both become the column tone__p_very_positive"):
+        parse_question(
+            {
+                "type": "choice",
+                "name": "tone",
+                "instructions": "how warm is it?",
+                "criteria": {"Very Positive": 0.5, "very positive": 0.5},
+            }
+        )
+    # Punctuation and underscores collide the same way.
+    with pytest.raises(ValueError, match="both become the column"):
+        parse_question(
+            {
+                "type": "choice",
+                "name": "tone",
+                "instructions": "how warm is it?",
+                "criteria": {"a-b": 0.5, "a_b": 0.5},
+            }
+        )
+
+
+def test_label_columns_can_never_return_a_duplicate() -> None:
+    """The guarantee lives with the function that mints the names.
+
+    `parse_question` catches this over the API, but a `Choice` can be built
+    directly — and a duplicate column is silently destructive rather than merely
+    wrong, so the check belongs where the names are produced too.
+    """
+    clashing = [
+        Choice(
+            name="tone",
+            instructions="how warm is it?",
+            criteria={"Very Positive": 0.5, "very positive": 0.5},
+        )
+    ]
+    with pytest.raises(ValueError, match="write the same column twice"):
+        label_columns(clashing)
+
+
+def test_distinct_criteria_still_get_distinct_columns() -> None:
+    """The check must not fire on options that merely look similar."""
+    question = parse_question(
+        {
+            "type": "choice",
+            "name": "tone",
+            "instructions": "how warm is it?",
+            "criteria": {"Very positive": 0.4, "Neutral": 0.4, "not neutral": 0.2},
+        }
+    )
+    assert label_columns([question]) == [
+        "tone",
+        "tone__confidence",
+        "tone__p_very_positive",
+        "tone__p_neutral",
+        "tone__p_not_neutral",
+    ]
+
+
 def test_question_validation() -> None:
     with pytest.raises(ValueError, match="snake_case"):
         parse_question({"type": "noul", "name": "Bad Name", "instructions": "x"})

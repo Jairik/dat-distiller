@@ -67,6 +67,18 @@ export function questionToSpec(question: JevQuestionDraft): Record<string, unkno
 }
 
 /** Everything wrong with a draft, in the order the user will fix it. */
+/**
+ * The sibling column one Choice option writes its probability to.
+ *
+ * Mirrors `label._option_column` in the backend, which is the definition that
+ * actually decides where a probability lands. The two must agree: if they
+ * drift, the UI would validate a set of options the backend then refuses, or
+ * worse, accept one whose probability is written to a column nobody expected.
+ */
+export function optionColumn(option: string): string {
+  return `p_${option.replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase()}`
+}
+
 export function questionErrors(question: JevQuestionDraft): string[] {
   const errors: string[] = []
   const name = question.name.trim()
@@ -84,6 +96,20 @@ export function questionErrors(question: JevQuestionDraft): string[] {
     for (const key of keys) {
       if (seen.has(key)) errors.push(`option "${key}" is duplicated`)
       seen.add(key)
+    }
+    // Two options that differ only in case or punctuation would share one
+    // probability column, and the second write would silently overwrite the
+    // first. The backend refuses this too; catching it here means the person
+    // editing the Jev Question hears about it before they run anything.
+    const columns = new Map<string, string>()
+    for (const key of keys) {
+      const column = optionColumn(key)
+      const first = columns.get(column)
+      if (first !== undefined) {
+        errors.push(`options "${first}" and "${key}" both become the column ${column}`)
+      } else {
+        columns.set(column, key)
+      }
     }
   }
   if (question.type === 'score') {

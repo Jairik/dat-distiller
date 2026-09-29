@@ -271,6 +271,38 @@ describe('Label step — building questions by hand', () => {
     expect(questionErrors(dup)).toContain('option "a" is duplicated')
   })
 
+  it('refuses Choice options that would share a probability column', () => {
+    // "Very Positive" and "very positive" both become the column
+    // `p_very_positive`, so the Jev's probability for the option it answered was
+    // written over the other one's. The backend refuses this too; catching it
+    // here means the person editing the question hears about it before running.
+    const clashing = {
+      ...emptyQuestion(0),
+      type: 'choice' as const,
+      criteria: [
+        { key: 'Very Positive', description: '' },
+        { key: 'very positive', description: '' },
+      ],
+    }
+    expect(questionErrors(clashing)).toContain(
+      'options "Very Positive" and "very positive" both become the column p_very_positive',
+    )
+  })
+
+  it('accepts Choice options that merely look similar', () => {
+    const fine = {
+      ...emptyQuestion(0),
+      type: 'choice' as const,
+      instructions: 'how warm is it?',
+      criteria: [
+        { key: 'Very positive', description: '' },
+        { key: 'Neutral', description: '' },
+        { key: 'not neutral', description: '' },
+      ],
+    }
+    expect(questionErrors(fine)).toEqual([])
+  })
+
   it('refuses a Score with fewer than two levels', () => {
     const one = { ...emptyQuestion(0), type: 'score' as const, levels: ['only'] }
     expect(questionErrors(one)).toContain('a Score needs at least two levels')
