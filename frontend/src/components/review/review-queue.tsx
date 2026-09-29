@@ -48,7 +48,6 @@ export function ReviewQueuePanel({ versionId }: { versionId: string | undefined 
   const queue = useReviewQueue(versionId, threshold)
   const status = useReviewStatus(versionId, threshold)
   const apply = useApplyReview(versionId)
-  const row = useRowPreview(versionId)
 
   const items = queue.data?.items ?? []
   const families = queue.data?.families ?? {}
@@ -277,7 +276,7 @@ export function ReviewQueuePanel({ versionId }: { versionId: string | undefined 
                   <QueueCard
                     key={key(queued)}
                     item={item}
-                    state={row.data ? serializeState(row.data, Object.keys(row.data)) : null}
+                    versionId={versionId}
                     active={index === cursor}
                     familyType={families[item.family] ?? item.question_type}
                     onFocus={() => setCursor(index)}
@@ -340,14 +339,15 @@ function Shortcut({ keys, what }: { keys: string; what: string }) {
 
 function QueueCard({
   item,
-  state,
+  versionId,
   active,
   familyType,
   onFocus,
   onDecide,
 }: {
   item: QueueItem
-  state: string | null
+  /** The version this row belongs to, so the card can fetch *its own* State. */
+  versionId: string | undefined
   active: boolean
   familyType: string
   onFocus: () => void
@@ -416,14 +416,7 @@ function QueueCard({
         </div>
       </div>
 
-      {state && (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-muted-foreground">Show the State</summary>
-          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">
-            {state}
-          </pre>
-        </details>
-      )}
+      <QueueState versionId={versionId} rowIndex={item.row_index} />
 
       <div className="mt-2 flex flex-wrap items-end gap-2">
         <div className="flex min-w-40 flex-1 flex-col gap-1">
@@ -452,13 +445,25 @@ function QueueCard({
   )
 }
 
-/** Row 1 of the version, for the expandable State on each card. */
-function useRowPreview(versionId: string | undefined) {
+/**
+ * The State of one specific row, fetched for that row.
+ *
+ * This used to be a single `preview?page_size=1` for the whole queue, which can
+ * only ever return row 0 — so every card showed the same State with its own row
+ * number printed above it. Judging Jev's answer against the State it read is the
+ * whole point of the Review Queue, and a reviewer who trusted the panel was
+ * accepting or overriding labels against a different row's evidence.
+ *
+ * `?row=` asks the backend for one position rather than guessing which page holds
+ * it, and nothing is rendered until *this* row has arrived: showing no State is
+ * honest, showing another row's is not.
+ */
+function QueueState({ versionId, rowIndex }: { versionId: string | undefined; rowIndex: number }) {
   const query = useQuery({
-    queryKey: ['review-row', versionId],
+    queryKey: ['review-row', versionId, rowIndex],
     queryFn: () =>
       apiGet<{ columns: Array<{ name: string }>; rows: unknown[][] }>(
-        `/dataset-versions/${versionId}/preview?page_size=1`,
+        `/dataset-versions/${versionId}/preview?row=${rowIndex}`,
       ).then((body) => {
         const row: Record<string, unknown> = {}
         body.columns.forEach((column, i) => {
@@ -469,5 +474,23 @@ function useRowPreview(versionId: string | undefined) {
     enabled: Boolean(versionId),
     retry: false,
   })
-  return { data: query.data ?? null }
+  if (query.isPending) {
+    return <p className="mt-2 text-xs text-muted-foreground">Loading the State…</p>
+  }
+  if (query.isError || !query.data) {
+    return (
+      <p role="alert" className="mt-2 text-xs text-destructive">
+        {`The State for row ${rowIndex} could not be read, so it is not shown here.`}
+      </p>
+    )
+  }
+  const state = serializeState(query.data, Object.keys(query.data))
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer text-xs text-muted-foreground">Show the State</summary>
+      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">
+        {state}
+      </pre>
+    </details>
+  )
 }

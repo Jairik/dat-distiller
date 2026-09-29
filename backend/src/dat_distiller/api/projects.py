@@ -138,16 +138,35 @@ def preview_dataset_version(
     request: Request,
     page: int = Query(0, ge=0),
     page_size: int = Query(200, ge=1, le=1000),
+    row: int | None = Query(
+        None,
+        ge=0,
+        description=(
+            "One row by position, instead of a page. The Review Queue needs the "
+            "State of the row it is showing, and paging to reach one row means "
+            "either fetching up to 1000 rows or guessing the page — both of "
+            "which quietly return a different row than the one asked for."
+        ),
+    ),
 ) -> PreviewOut:
     version = _require_version(request, version_id)
     df = _store(request).load_dataframe(version.id)  # provenance excluded
-    start, end = page * page_size, (page + 1) * page_size
-    rows = [[_jsonify(v) for v in row] for row in df.iloc[start:end].to_numpy(dtype=object)]
+    if row is not None:
+        if row >= len(df):
+            raise HTTPException(
+                422, f"row {row} is past the end of this version ({len(df)} rows)"
+            )
+        start, end = row, row + 1
+        effective_page, effective_size = 0, 1
+    else:
+        start, end = page * page_size, (page + 1) * page_size
+        effective_page, effective_size = page, page_size
+    rows = [[_jsonify(v) for v in row_values] for row_values in df.iloc[start:end].to_numpy(dtype=object)]
     return PreviewOut(
         version_id=version.id,
         columns=[c.to_dict() for c in version.columns],
-        page=page,
-        page_size=page_size,
+        page=effective_page,
+        page_size=effective_size,
         total_rows=len(df),
         rows=rows,
     )

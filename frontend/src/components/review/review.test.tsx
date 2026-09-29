@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from '@/App'
 import { overrideProblem, type QueueItem } from '@/lib/review'
-import { mockFetch, renderWithProviders } from '@/test/render'
+import { json, mockFetch, renderWithProviders } from '@/test/render'
 import { stubEventSource } from '@/test/sse'
 
 
@@ -83,18 +83,27 @@ const STATUS = {
   unreviewed_count: 2,
 }
 
-const baseHandlers = {
-  'GET /projects': () => [project],
-  'GET /projects/p1': () => project,
-  'GET /projects/p1/dataset_versions': () => [V1, V2],
-  'GET /dataset-versions/v2/preview': () => ({
+function previewRow(age: number) {
+  return {
     version_id: 'v2',
     columns: [{ name: 'age', kind: 'integer' }],
     page: 0,
     page_size: 1,
     total_rows: 40,
-    rows: [[31]],
-  }),
+    rows: [[age]],
+  }
+}
+
+const baseHandlers = {
+  'GET /projects': () => [project],
+  'GET /projects/p1': () => project,
+  'GET /projects/p1/dataset_versions': () => [V1, V2],
+  // mockFetch matches the full URL first, so each `?row=` gets its own handler
+  // and its own value — a card showing some other row's State is then visible
+  // rather than merely plausible.
+  'GET /dataset-versions/v2/preview': () => previewRow(0),
+  'GET /dataset-versions/v2/preview?row=1': () => previewRow(101),
+  'GET /dataset-versions/v2/preview?row=3': () => previewRow(103),
   'GET /dataset-versions/v2/review-queue': () => QUEUE,
   'GET /dataset-versions/v2/review-status': () => STATUS,
   'GET /checks': () => ({ checks: [], unacknowledged_warnings: 0 }),
@@ -400,6 +409,44 @@ describe('overrideProblem', () => {
     expect(overrideProblem('choice', 'neg')).toBeNull()
     expect(overrideProblem('noul', 'yes')).toBeNull()
     expect(overrideProblem('score', 5)).toBeNull()
+  })
+})
+
+describe('ReviewQueuePanel — the State belongs to the row under review', () => {
+  it('shows each card the State of its own row', async () => {
+    // The State is "the text Jev reads for one row", and judging Jev's answer
+    // against it is the whole point of the queue. One `preview?page_size=1` for
+    // the whole panel can only ever return row 0, so every card used to show the
+    // same State with its own row number printed directly above it.
+    const user = userEvent.setup()
+    mockFetch(baseHandlers)
+    renderQueue()
+    await screen.findByText('Review Queue')
+
+    const first = await screen.findByTestId('queue-item-1-tone')
+    const second = await screen.findByTestId('queue-item-3-tone')
+    await user.click(within(first).getByText('Show the State'))
+    await user.click(within(second).getByText('Show the State'))
+
+    // Row 1's State is 101, row 3's is 103. Asserting the text is the point:
+    // the old test asserted the row number, which was correct while the State
+    // underneath it was somebody else's.
+    expect(within(first).getByText(/101/)).toBeInTheDocument()
+    expect(within(second).getByText(/103/)).toBeInTheDocument()
+    expect(within(first).queryByText(/103/)).not.toBeInTheDocument()
+  })
+
+  it('says so when a row\'s State cannot be read, rather than showing another row\'s', async () => {
+    mockFetch({
+      ...baseHandlers,
+      'GET /dataset-versions/v2/preview?row=3': () => json({ detail: 'gone' }, 500),
+    })
+    renderQueue()
+    await screen.findByText('Review Queue')
+    const second = await screen.findByTestId('queue-item-3-tone')
+    const alert = await within(second).findByRole('alert')
+    expect(alert).toHaveTextContent('row 3')
+    expect(alert).toHaveTextContent('could not be read')
   })
 })
 

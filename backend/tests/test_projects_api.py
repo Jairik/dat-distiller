@@ -102,3 +102,31 @@ def test_preview_paginates_and_hides_provenance(client: TestClient, project: dic
         f"/api/dataset-versions/{version['id']}/preview?page=99&page_size=50"
     ).json()
     assert beyond["rows"] == [] and beyond["total_rows"] == 3
+
+
+def test_preview_can_return_one_row_by_position(client: TestClient, project: dict) -> None:
+    """`?row=` addresses a row directly, for the Review Queue's State.
+
+    The Review Queue needs the State of the row it is showing. Paging to reach
+    one row means either fetching up to 1000 rows or computing which page holds
+    it, and both quietly return a *different* row than the one asked for — which
+    is how every card came to display row 0's State above its own row number.
+    """
+    version = make_version(client, project["id"])
+    base = f"/api/dataset-versions/{version['id']}/preview"
+    page1 = client.get(f"{base}?page=1&page_size=1").json()
+    assert [r[0] for r in page1["rows"]] == ["gadget"]
+
+    for index, expected in enumerate(["widget", "gadget", "thing"]):
+        body = client.get(f"{base}?row={index}").json()
+        assert [r[0] for r in body["rows"]] == [expected]
+        assert body["total_rows"] == 3
+        # Same shape as a page, so the same parser works either way.
+        assert [c["name"] for c in body["columns"]] == ["name", "price", "spam"]
+
+    # A row past the end is a plain refusal, not an empty list that reads as a
+    # row with no values.
+    past = client.get(f"{base}?row=99")
+    assert past.status_code == 422
+    assert "past the end" in past.json()["detail"]
+    assert client.get(f"{base}?row=-1").status_code == 422
